@@ -33,15 +33,17 @@ export function Toggle({ label, checked, onChange, hint, disabled, description }
         disabled={disabled}
         onClick={() => onChange(!checked)}
         className={cn(
-          'relative h-6 w-11 shrink-0 rounded-full border transition-colors disabled:opacity-50',
+          'relative h-6 w-11 shrink-0 rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-50',
           'coarse:min-h-0 coarse:before:absolute coarse:before:-inset-y-[11px] coarse:before:-inset-x-px coarse:before:content-[""]',
-          checked ? 'border-brand bg-brand' : 'border-line bg-elevated',
+          // Off keeps a faint outline and knob, so the switch still reads as a control (3:1) on any surface.
+          checked ? 'border-brand bg-brand' : 'border-faint bg-elevated hover:border-muted',
         )}
       >
         <span
           className={cn(
-            'absolute left-0 top-[2px] h-[18px] w-[18px] rounded-full bg-white shadow transition-transform',
-            checked ? 'translate-x-[22px]' : 'translate-x-[2px]',
+            'absolute left-0 top-[2px] h-[18px] w-[18px] rounded-full shadow transition-[transform,background-color]',
+            // on-fill, not white: the dark theme brand is bright, and a white knob on it is 2:1.
+            checked ? 'translate-x-[22px] bg-on-fill' : 'translate-x-[2px] bg-faint',
           )}
         />
         <span className="sr-only">{checked ? 'On' : 'Off'}</span>

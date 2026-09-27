@@ -16,6 +16,7 @@ import { computeLoad } from '@/simulations/models/load';
 import { useRerender } from '@/hooks/useRerender';
 import { sampleArrivals } from '@/utils/math';
 import { formatLatency, formatPercent } from '@/utils/format';
+import { useLabRunning } from '@/hooks/useLabRunning';
 
 type Scheme = 'none' | 'range' | 'list' | 'hash';
 type QueryId = 'recent' | 'august' | 'region' | 'tenant' | 'status';
@@ -200,14 +201,14 @@ function partitionsRead(scheme: Scheme, query: QueryId, parts: Part[]): Part[] {
 /** Two columns of three partition slots, left and right of the planner. */
 const SLOTS = [0, 1, 2, 3, 4, 5].map((slot) => ({
   x: slot < 3 ? 30 : 690,
-  y: 118 + (slot % 3) * 118,
+  y: 118 + (slot % 3) * 124,
   w: 240,
-  h: 108,
+  h: 116,
 }));
 
 const BASE_LAYOUT: Layout = {
-  app: { x: 390, y: 10, w: 180, h: 64 },
-  planner: { x: 360, y: 210, w: 240, h: 120 },
+  app: { x: 390, y: 10, w: 180, h: 73 },
+  planner: { x: 360, y: 236, w: 240, h: 128 },
 };
 
 const PARTICLE_BUDGET = 90;
@@ -215,7 +216,7 @@ const PARTICLE_BUDGET = 90;
 export function PartitioningLab() {
   const [setup, setSetup] = useState<Setup>(DEFAULT_SETUP);
   const { scheme, query, qps } = setup;
-  const [running, setRunning] = useState(true);
+  const [running, setRunning] = useLabRunning();
   const state = useRef<State>(createState(DEFAULT_SETUP.scheme));
   const rerender = useRerender(30);
   // Button actions must repaint even when the throttled rerender skips a frame.
@@ -355,7 +356,7 @@ export function PartitioningLab() {
 
   // Layout: the partition nodes that still exist, in their fixed slots.
   const layout: Layout = { ...BASE_LAYOUT };
-  if (scheme === 'none') layout.events = { x: 660, y: 220, w: 270, h: 108 };
+  if (scheme === 'none') layout.events = { x: 660, y: 242, w: 270, h: 116 };
   else for (const part of current.parts) layout[part.id] = SLOTS[part.slot];
 
   const jobTargets = current.job ? new Set(Object.keys(current.job.remaining)) : new Set<string>();
@@ -399,7 +400,7 @@ export function PartitioningLab() {
       return (
         <>
           One table of {TOTAL_ROWS}M rows: every query reads all of it under this model, whatever it filters on. Switch to
-          Range and run the dashboard query to see the planner skip five of six pieces.
+          Range and run the dashboard query to see the planner skip five of the six partitions.
         </>
       );
     if (pruned)
@@ -425,9 +426,17 @@ export function PartitioningLab() {
       title="Partitioning Lab"
       description="One database, one events table split into partitions. Run queries and watch the planner prune, then remove an old month with DROP or with DELETE."
       running={running}
-      onToggleRun={() => setRunning((value) => !value)}
+      onRunningChange={setRunning}
       onReset={reset}
-      legend={<ParticleLegend outcomes={['success', 'warning', 'failure']} />}
+      legend={
+        <ParticleLegend
+          outcomes={[
+            { outcome: 'success', label: 'Query' },
+            { outcome: 'warning', label: 'DELETE batch' },
+            { outcome: 'failure', label: 'Query timed out' },
+          ]}
+        />
+      }
       events={events}
       insight={<Insight>{insight}</Insight>}
       metrics={
@@ -513,7 +522,7 @@ export function PartitioningLab() {
             onChange={(value) => setSetup((current) => ({ ...current, qps: value }))}
             format={(value) => `${value} q/s`}
           />
-          <div className="space-y-2 rounded-xl border border-line bg-elevated p-3">
+          <div className="space-y-2 border-t border-line pt-4">
             <p className="label">Retention: remove the oldest month</p>
             <Button className="w-full" variant="primary" size="sm" disabled={!canDrop} onClick={dropOldest}>
               <Scissors className="h-3.5 w-3.5" />
@@ -552,7 +561,7 @@ export function PartitioningLab() {
         layout={layout}
         edges={edges}
         particles={particles}
-        height={486}
+        height={502}
         className="bg-canvas"
         underlay={
           <g>
@@ -560,7 +569,7 @@ export function PartitioningLab() {
               x={14}
               y={88}
               width={932}
-              height={388}
+              height={404}
               rx={16}
               fill="none"
               strokeDasharray="6 5"

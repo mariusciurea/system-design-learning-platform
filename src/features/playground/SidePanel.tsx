@@ -67,7 +67,7 @@ export function SidePanel({ id, side, title, folded, onFoldedChange, width, chil
         className={cn('shrink-0 overflow-y-auto border-line bg-surface p-3', border, width)}
       >
         <div className="mb-2 flex items-center justify-between gap-2">
-          <p className="label">{title}</p>
+          <h2 className="label">{title}</h2>
           <button
             type="button"
             ref={foldButton}

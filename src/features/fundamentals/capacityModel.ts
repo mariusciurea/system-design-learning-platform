@@ -6,7 +6,11 @@
  * server, 50% headroom and 10,000 writes/sec for one database primary are the round numbers people
  * use on a whiteboard. Real limits depend on the hardware, the code and the queries. Sizes are
  * decimal (1 KB = 1,000 bytes), the convention for napkin math; using 1,024 changes no decision.
+ *
+ * Imports only relative .ts files, so `npm test` runs it on Node as it is.
  */
+
+import { formatCompact, formatNumber } from '../../utils/format.ts';
 
 export interface CapacityInputs {
   dau: number;
@@ -66,17 +70,22 @@ export interface Estimate {
 /** The nearest power of ten, measured on a log scale (so 3 rounds to 1 and 4 rounds to 10). */
 export const toPowerOfTen = (value: number) => (value <= 0 ? 0 : 10 ** Math.round(Math.log10(value)));
 
-/** One significant figure: 11,574 -> 10,000; 0.15 -> 0.2; 365 -> 400. */
+/** One significant figure, halves rounded up: 11,574 -> 10,000; 0.15 -> 0.2; 0.35 -> 0.4; 365 -> 400. */
 export function toOneFigure(value: number) {
   if (value <= 0) return 0;
-  const exponent = Math.floor(Math.log10(value));
+  let exponent = Math.floor(Math.log10(value));
+  // log10 of an exact power of ten can land just below the integer.
+  if (10 ** (exponent + 1) <= value) exponent += 1;
   const scale = 10 ** exponent;
-  const rounded = Math.round(value / scale) * scale;
+  // In floating point 0.15 / 0.1 is 1.4999999999999998, which would round down. Twelve significant
+  // figures turn it back into the 1.5 it stands for, so the half rounds up as on paper.
+  const mantissa = Number((value / scale).toPrecision(12));
   // Clean floating-point noise such as 0.30000000000000004.
-  return Number(rounded.toPrecision(1));
+  return Number((Math.round(mantissa) * scale).toPrecision(1));
 }
 
-function serversFor(peakQps: number) {
+/** Servers the peak needs at SERVER_CAPACITY each, then the same with HEADROOM, both rounded up. */
+export function serversFor(peakQps: number) {
   const serversAtPeak = Math.max(1, Math.ceil(peakQps / SERVER_CAPACITY));
   return { serversAtPeak, servers: Math.ceil(serversAtPeak * HEADROOM) };
 }
@@ -193,6 +202,26 @@ export const SCALE_LABEL: Record<ScaleCategory, string> = {
   partitioned: 'Partitioned, per-region fleet',
 };
 
+export type WriteDecision = 'one-primary' | 'partition';
+
+/** The database half of the decision: peak writes against what one primary absorbs. */
+export const writeDecisionOf = (peakWriteQps: number): WriteDecision =>
+  peakWriteQps > PRIMARY_WRITE_LIMIT ? 'partition' : 'one-primary';
+
+export const WRITE_DECISION_LABEL: Record<WriteDecision, string> = {
+  'one-primary': 'One primary is enough',
+  partition: 'Partition the writes',
+};
+
+/**
+ * Whether the rough estimate leads to the same design as the exact one: the same scale category
+ * for the app tier and the same write decision for the database. Peak QPS alone is not enough - at
+ * 100% writes both peaks are a fleet, while only the exact writes overflow one primary.
+ */
+export const sameDecision = (rough: Estimate, exact: Estimate) =>
+  scaleOf(rough.peakQps) === scaleOf(exact.peakQps) &&
+  writeDecisionOf(rough.peakWriteQps) === writeDecisionOf(exact.peakWriteQps);
+
 const SUPERSCRIPT: Record<string, string> = {
   '-': '⁻',
   '0': '⁰',
@@ -230,4 +259,196 @@ export function formatSize(bytes: number) {
     unit += 1;
   }
   return `${value < 10 ? Number(value.toFixed(1)) : Math.round(value)} ${units[unit]}`;
+}
+
+/** Rates below 10/sec keep two decimals, so a tiny product does not read as "0 req/sec". */
+export const formatRate = (value: number) => (value < 10 ? value.toFixed(2) : formatNumber(value));
+
+export const formatCopies = (count: number) => `${count} ${count > 1 ? 'copies' : 'copy'}`;
+
+/** Two significant figures below 10, whole numbers with separators above, "< 0.01" for dust. */
+function formatFigure(value: number) {
+  if (value >= 10) return formatNumber(value);
+  if (value < 0.01) return '< 0.01';
+  return `${Number(value.toPrecision(2))}`;
+}
+
+/** Bytes per second as megabytes per second (1 MB = 10^6 bytes): the unit files are measured in. */
+export const formatMegabytesPerSec = (bytesPerSec: number) => `${formatFigure(bytesPerSec / 1e6)} MB/s`;
+
+/** Bytes per second as gigabits per second (x 8 bits): the unit network links are sold in. */
+export const formatGigabitsPerSec = (bytesPerSec: number) => `${formatFigure((bytesPerSec * 8) / 1e9)} Gbit/s`;
+
+/** Both units side by side, because reading Gbit as GB is the classic 8x mistake. */
+export const formatBandwidth = (bytesPerSec: number) =>
+  `${formatMegabytesPerSec(bytesPerSec)} = ${formatGigabitsPerSec(bytesPerSec)}`;
+
+/**
+ * How an estimate writes its numbers: napkin powers of ten in rough mode, the plain figures
+ * otherwise. `big` is for counts, `rate` for per-second values, `small` for multipliers.
+ */
+export function numberFormats(rounding: boolean) {
+  return {
+    big: (value: number) => (rounding ? formatPowerOfTen(value) : formatCompact(value)),
+    rate: (value: number) => (rounding ? formatPowerOfTen(value) : formatRate(value)),
+    small: (value: number) => (rounding ? formatPowerOfTen(value) : `${Number(value.toPrecision(3))}`),
+  };
+}
+
+export type CapacityStepId =
+  | 'requests-per-day'
+  | 'average-qps'
+  | 'peak-qps'
+  | 'servers-at-peak'
+  | 'servers-with-headroom'
+  | 'average-writes'
+  | 'peak-writes'
+  | 'daily-storage'
+  | 'yearly-storage'
+  | 'retained-storage'
+  | 'replicated-storage'
+  | 'peak-bandwidth';
+
+export interface CapacityStep {
+  id: CapacityStepId;
+  label: string;
+  /** The part of the system this number sizes. */
+  part: string;
+  formula: string;
+  /** The number the step produces - the same one the diagram and the metrics show. */
+  value: number;
+  result: string;
+  /** Rough mode only: the exact result of the same step. */
+  exact?: string;
+  emphasis?: boolean;
+}
+
+/**
+ * The estimate as the chain of steps the Lab lists, each producing one number from the ones before
+ * it. In rough mode the formulas show the rounded inputs and every step also carries its exact
+ * result, so the learner sees where the napkin drifts.
+ */
+export function capacitySteps(input: CapacityInputs, rounding: boolean): CapacityStep[] {
+  const exact = exactEstimate(input);
+  const est = rounding ? roughEstimate(input) : exact;
+  const u = est.used;
+  const { big, rate, small } = numberFormats(rounding);
+  const orExact = (text: string) => (rounding ? text : undefined);
+  const years = input.retentionYears;
+  return [
+    {
+      id: 'requests-per-day',
+      label: 'Requests per day',
+      part: 'Clients',
+      formula: `${big(u.dau)} DAU x ${small(u.requestsPerUser)} requests/user/day`,
+      value: est.requestsPerDay,
+      result: `${big(est.requestsPerDay)} requests/day`,
+      exact: orExact(formatCompact(exact.requestsPerDay)),
+    },
+    {
+      id: 'average-qps',
+      label: 'Average requests per second',
+      part: 'Clients',
+      formula: `${big(est.requestsPerDay)} / ${rounding ? formatPowerOfTen(u.secondsPerDay) : '86,400'} seconds`,
+      value: est.avgQps,
+      result: `${rate(est.avgQps)} req/sec`,
+      exact: orExact(formatRate(exact.avgQps)),
+      emphasis: true,
+    },
+    {
+      id: 'peak-qps',
+      label: 'Peak requests per second',
+      part: 'Load balancer',
+      formula: `${rate(est.avgQps)} x ${small(u.peakFactor)} peak factor`,
+      value: est.peakQps,
+      result: `${rate(est.peakQps)} req/sec`,
+      exact: orExact(formatRate(exact.peakQps)),
+      emphasis: true,
+    },
+    {
+      id: 'servers-at-peak',
+      label: 'App servers at peak',
+      part: 'App tier',
+      formula: `${rate(est.peakQps)} req/sec / ${formatNumber(SERVER_CAPACITY)} per server, rounded up`,
+      value: est.serversAtPeak,
+      result: `${formatNumber(est.serversAtPeak)} servers`,
+      exact: orExact(formatNumber(exact.serversAtPeak)),
+    },
+    {
+      id: 'servers-with-headroom',
+      label: 'App servers with headroom',
+      part: 'App tier',
+      formula: `${formatNumber(est.serversAtPeak)} servers x ${HEADROOM} headroom, rounded up`,
+      value: est.servers,
+      result: `${formatNumber(est.servers)} servers`,
+      exact: orExact(formatNumber(exact.servers)),
+      emphasis: true,
+    },
+    {
+      id: 'average-writes',
+      label: 'Average writes per second',
+      part: 'Database',
+      formula: `${rate(est.avgQps)} req/sec x ${small(u.writeShare * 100)}% writes`,
+      value: est.writeQps,
+      result: `${rate(est.writeQps)} writes/sec`,
+      exact: orExact(formatRate(exact.writeQps)),
+    },
+    {
+      id: 'peak-writes',
+      label: 'Peak writes per second',
+      part: 'Database',
+      formula: `${rate(est.writeQps)} writes/sec x ${small(u.peakFactor)} peak factor`,
+      value: est.peakWriteQps,
+      result: `${rate(est.peakWriteQps)} writes/sec`,
+      exact: orExact(formatRate(exact.peakWriteQps)),
+      emphasis: true,
+    },
+    {
+      id: 'daily-storage',
+      label: 'Daily storage growth',
+      part: 'Object storage',
+      formula: `${big(est.writesPerDay)} writes/day x ${formatSize(u.objectBytes)}`,
+      value: est.dailyBytes,
+      result: formatSize(est.dailyBytes),
+      exact: orExact(formatSize(exact.dailyBytes)),
+    },
+    {
+      id: 'yearly-storage',
+      label: 'Annual storage growth',
+      part: 'Object storage',
+      formula: `${formatSize(est.dailyBytes)} x ${small(u.daysPerYear)} days`,
+      value: est.yearlyBytes,
+      result: formatSize(est.yearlyBytes),
+      exact: orExact(formatSize(exact.yearlyBytes)),
+      emphasis: true,
+    },
+    {
+      id: 'retained-storage',
+      label: `Storage after ${years} year${years > 1 ? 's' : ''}`,
+      part: 'Object storage',
+      formula: `${formatSize(est.yearlyBytes)} x ${small(u.retentionYears)}`,
+      value: est.retainedBytes,
+      result: formatSize(est.retainedBytes),
+      exact: orExact(formatSize(exact.retainedBytes)),
+    },
+    {
+      id: 'replicated-storage',
+      label: 'With replication',
+      part: 'Object storage',
+      formula: `${formatSize(est.retainedBytes)} x ${formatCopies(u.replicationFactor)}`,
+      value: est.storedBytes,
+      result: formatSize(est.storedBytes),
+      exact: orExact(formatSize(exact.storedBytes)),
+      emphasis: true,
+    },
+    {
+      id: 'peak-bandwidth',
+      label: 'Peak bandwidth',
+      part: 'Load balancer',
+      formula: `${rate(est.peakQps)} req/sec x ${formatSize(u.objectBytes)}, x 8 for bits`,
+      value: est.bandwidthBytesPerSec,
+      result: formatBandwidth(est.bandwidthBytesPerSec),
+      exact: orExact(formatBandwidth(exact.bandwidthBytesPerSec)),
+    },
+  ];
 }

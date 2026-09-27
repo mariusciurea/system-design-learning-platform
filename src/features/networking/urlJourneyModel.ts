@@ -1,4 +1,4 @@
-import type { RequestOutcome } from '@/types';
+import type { RequestOutcome } from '../../types/index.ts';
 
 /**
  * The URL journey as a list of stages, each one a set of hops between the parts
@@ -146,6 +146,45 @@ export function dnsState(setup: JourneySetup): DnsState {
 export const frontOf = (setup: JourneySetup): NodeId => (setup.cdn ? 'edge' : 'lb');
 export const frontRttOf = (setup: JourneySetup) => (setup.cdn ? EDGE_RTT_MS : setup.originRttMs);
 
+/**
+ * Where the browser looks for a stored answer before anything leaves the
+ * machine, in the order it looks. A service worker, if the site registered one,
+ * sees the request before the HTTP cache does; the two DNS caches only matter
+ * once the page itself has to be fetched.
+ */
+export const MACHINE_CACHES = ['service worker', 'HTTP cache', 'browser DNS cache', 'operating system DNS cache'] as const;
+
+/** The five caches a lookup passes before any DNS server is asked: the four on the machine, then the resolver. */
+export const CACHES_BEFORE_DNS = [...MACHINE_CACHES, 'resolver cache'] as const;
+
+/** The hostname the CDN gives this site. The owner points example.com at it. */
+export const CDN_HOST = 'example.com.cdn.net';
+
+export interface DnsAnswer {
+  /**
+   * The record for example.com at its authoritative server. With a CDN it points
+   * at the CDN hostname: a CNAME would, but a bare domain cannot hold one, so it
+   * is an ALIAS - the authoritative server resolves the CDN name itself and
+   * returns the address of an edge.
+   */
+  record: 'ALIAS' | 'A';
+  /** The part the address in the answer leads to: where the browser connects next. */
+  leadsTo: NodeId;
+  /** What that address is, in a few words: `CDN edge IP` or `origin IP`. */
+  address: string;
+  /** What the authoritative server holds, in a few words. */
+  holds: string;
+  /** Subtitle of the authoritative server in the Lab. */
+  authSubtitle: string;
+}
+
+export function dnsAnswer(setup: JourneySetup): DnsAnswer {
+  const ttl = formatTtl(setup.ttlS);
+  return setup.cdn
+    ? { record: 'ALIAS', leadsTo: 'edge', address: 'CDN edge IP', holds: 'ALIAS to the CDN', authSubtitle: `ALIAS to CDN, TTL ${ttl}` }
+    : { record: 'A', leadsTo: 'lb', address: 'origin IP', holds: 'A record', authSubtitle: `A record, TTL ${ttl}` };
+}
+
 const there = (from: NodeId, to: NodeId, outcome: RequestOutcome = 'success'): Hop[] => [
   { from, to, outcome },
   { from: to, to: from, outcome },
@@ -153,6 +192,7 @@ const there = (from: NodeId, to: NodeId, outcome: RequestOutcome = 'success'): H
 
 export function planJourney(setup: JourneySetup): StagePlan[] {
   const dns = dnsState(setup);
+  const answer = dnsAnswer(setup);
   const front = frontOf(setup);
   const frontRtt = frontRttOf(setup);
   // Plain HTTP is readable on every public hop; inside the data centre nothing changes.
@@ -166,7 +206,10 @@ export function planJourney(setup: JourneySetup): StagePlan[] {
     {
       id: 'browser',
       title: 'Browser processing',
-      short: 'URL parsed, caches checked',
+      // On a reused connection the address is not needed, so the two DNS caches are not asked.
+      short: setup.warm
+        ? `URL parsed, ${MACHINE_CACHES[0]} and ${MACHINE_CACHES[1]} miss`
+        : `URL parsed, ${MACHINE_CACHES.length} caches on the machine miss`,
       group: null,
       cost: BROWSER_MS,
       skipped: null,
@@ -177,7 +220,7 @@ export function planJourney(setup: JourneySetup): StagePlan[] {
     {
       id: 'dns-ask',
       title: 'DNS: ask the resolver',
-      short: dns.answerCached ? 'answer cached at the resolver' : 'resolver cache miss',
+      short: dns.answerCached ? `cached answer: the ${answer.address}` : 'resolver cache miss',
       group: 'dns',
       cost: RESOLVER_RTT_MS,
       skipped: setup.warm ? reused : null,
@@ -223,7 +266,7 @@ export function planJourney(setup: JourneySetup): StagePlan[] {
     {
       id: 'dns-auth',
       title: 'DNS: authoritative server',
-      short: `A record + TTL ${formatTtl(setup.ttlS)}`,
+      short: `${answer.holds}: ${answer.address}, TTL ${formatTtl(setup.ttlS)}`,
       group: 'dns',
       cost: AUTH_RTT_MS,
       skipped: dnsSkip(dns.answerCached, 'The resolver had the answer cached'),

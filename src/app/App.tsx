@@ -8,7 +8,7 @@ import { router } from './router';
 
 export function App() {
   return (
-    <ErrorBoundary area="Application">
+    <ErrorBoundary area="Application" root>
       <ThemeProvider>
         <AccountProvider>
           <ProgressProvider>

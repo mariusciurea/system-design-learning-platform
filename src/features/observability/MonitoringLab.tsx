@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useRef, type ReactNode } from 'react';
 import { Zap } from 'lucide-react';
 import {
   ArchNode,
@@ -10,7 +10,7 @@ import {
   type Layout,
   type ParticleView,
 } from '@/components/architecture';
-import { Insight, LabShell, MetricsPanel } from '@/components/learning';
+import { Insight, LabShell, MetricsPanel, SIMULATED_HINT } from '@/components/learning';
 import { Button, SegmentedControl, Slider, Toggle } from '@/components/ui';
 import { useLabSetup } from '@/hooks/useLabSetup';
 import { useRerender } from '@/hooks/useRerender';
@@ -60,6 +60,7 @@ import {
   type Setup,
   type Trace,
 } from './monitoringModel';
+import { useLabRunning } from '@/hooks/useLabRunning';
 
 /** What the Lab opens on at /labs/monitoring, with no Lab focus: the whole-system dashboard, payments failing. */
 const DEFAULT_SETUP: Setup = {
@@ -100,18 +101,20 @@ const PANELS: { value: Panel; label: string }[] = [
   { value: 'alerts', label: 'Alerts' },
 ];
 
+// Heights fit each card: two stat rows in the top row, one below. Probe is wide enough for
+// its subtitle, and Users matches it so the column stays one width.
 const LAYOUT: Layout = {
-  users: { x: 20, y: 30, w: 150, h: 74 },
-  probe: { x: 20, y: 150, w: 150, h: 74 },
-  gateway: { x: 240, y: 50, w: 170, h: 106 },
-  orders: { x: 470, y: 50, w: 170, h: 106 },
-  payments: { x: 750, y: 10, w: 190, h: 106 },
-  db: { x: 750, y: 140, w: 190, h: 106 },
-  collector: { x: 400, y: 270, w: 180, h: 90 },
-  logs: { x: 170, y: 400, w: 170, h: 90 },
-  metrics: { x: 400, y: 400, w: 170, h: 90 },
-  alerting: { x: 630, y: 400, w: 150, h: 90 },
-  oncall: { x: 830, y: 400, w: 120, h: 90 },
+  users: { x: 20, y: 30, w: 170, h: 74 },
+  probe: { x: 20, y: 150, w: 170, h: 74 },
+  gateway: { x: 240, y: 45, w: 170, h: 117 },
+  orders: { x: 470, y: 45, w: 170, h: 117 },
+  payments: { x: 750, y: 10, w: 190, h: 117 },
+  db: { x: 750, y: 140, w: 190, h: 117 },
+  collector: { x: 400, y: 268, w: 180, h: 95 },
+  logs: { x: 170, y: 400, w: 170, h: 95 },
+  metrics: { x: 400, y: 400, w: 170, h: 95 },
+  alerting: { x: 630, y: 400, w: 150, h: 95 },
+  oncall: { x: 830, y: 400, w: 120, h: 95 },
 };
 const CANVAS_HEIGHT = 505;
 
@@ -230,7 +233,7 @@ export function MonitoringLab({ focus }: LabProps<'monitoring'>) {
   const start = focus ? FOCUS_SETUPS[focus] : DEFAULT_SETUP;
   // Every control lives in one object, so Reset cannot miss one.
   const { setup, setSetup, change } = useLabSetup(start);
-  const [running, setRunning] = useState(true);
+  const [running, setRunning] = useLabRunning();
   const state = useRef<SimState | null>(null);
   if (state.current === null) state.current = createState(start);
   const rerender = useRerender(30);
@@ -356,7 +359,7 @@ export function MonitoringLab({ focus }: LabProps<'monitoring'>) {
       title="Monitoring Lab"
       description="A small shop running live. Inject a fault, then read what comes out of every part: the log lines of one request, the metric graphs of the trend, the dashboard of the whole system and the alert rule that pages a human - or does not."
       running={running}
-      onToggleRun={() => setRunning((value) => !value)}
+      onRunningChange={setRunning}
       onReset={reset}
       events={events}
       actions={
@@ -367,11 +370,17 @@ export function MonitoringLab({ focus }: LabProps<'monitoring'>) {
       }
       legend={
         <div className="space-y-1.5">
-          <ParticleLegend outcomes={['success', 'warning', 'failure']} />
+          <ParticleLegend
+            outcomes={[
+              { outcome: 'success', label: 'Request or log line' },
+              { outcome: 'warning', label: 'Slow database query' },
+              { outcome: 'failure', label: 'Failed request, ERROR or page' },
+            ]}
+          />
           <p className="text-[11px] text-faint">
             Top row: user requests. Violet wires: every part sends its log lines and metrics to the collector
             (a cross on them is an ERROR line). Red wire to On-call: a page. The simulated clock runs 10x faster than real
-            time.
+            time. {SIMULATED_HINT}
           </p>
         </div>
       }

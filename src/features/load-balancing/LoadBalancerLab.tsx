@@ -30,6 +30,7 @@ import { useRerender } from '@/hooks/useRerender';
 import { clamp, sampleArrivals } from '@/utils/math';
 import { formatLatency, formatNumber, formatPercent } from '@/utils/format';
 import type { LabFocus, LabProps, NodeStatus, SimulatedRequest } from '@/types';
+import { useLabRunning } from '@/hooks/useLabRunning';
 
 type Algorithm = 'round-robin' | 'weighted' | 'least-connections' | 'random';
 
@@ -46,7 +47,7 @@ const ALGORITHM_NOTE: Record<Algorithm, string> = {
   'round-robin': 'Each server takes the next request in turn. Even distribution, but it ignores how busy a server is. Turn on "Server 1 is slow" and compare it with Least Connections.',
   weighted: 'Bigger servers receive proportionally more requests. Server 1 has weight 3 (a machine three times the size), the rest weight 1.',
   'least-connections': 'The server with the fewest in-flight requests wins, so slow servers stop receiving new work.',
-  random: 'Uniformly random choice. Close to round robin at high volume, with no shared counter.',
+  random: 'Uniformly random choice. Close to Round Robin at high volume, with no shared counter.',
 };
 
 /** Every control of the lab, in one object so Reset cannot miss one. */
@@ -196,7 +197,7 @@ export function LoadBalancerLab({ focus }: LabProps<'load-balancer'>) {
   const { traffic, serverCount, algorithm, capacity, duration, slowFirst, healthChecks, intervalSec, failThreshold } =
     setup;
 
-  const [running, setRunning] = useState(true);
+  const [running, setRunning] = useLabRunning();
   const [inspected, setInspected] = useState<SimulatedRequest | null>(null);
 
   const sim = useRef<SimState | null>(null);
@@ -552,16 +553,18 @@ export function LoadBalancerLab({ focus }: LabProps<'load-balancer'>) {
     const count = servers.length;
     const width = clamp((940 - (count - 1) * 12) / count, 106, 168);
     const xs = spread(count, 480, width, 12);
+    // Tallest card: a subtitle, meter, stat rows and button (Weighted adds the Weight row).
+    const height = algorithm === 'weighted' ? 224 : 201;
     const result: Layout = {
-      users: { x: 390, y: 16, w: 180, h: 62 },
-      lb: { x: 370, y: 160, w: 220, h: 96 },
+      users: { x: 385, y: 16, w: 190, h: 73 },
+      lb: { x: 355, y: 130, w: 250, h: 128 },
     };
     servers.forEach((server, index) => {
-      result[server.id] = { x: xs[index], y: 352, w: width, h: 132 };
+      result[server.id] = { x: xs[index], y: 290, w: width, h: height };
     });
     return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- poolKey tracks the in-place mutations of servers
-  }, [servers, poolKey]);
+  }, [servers, poolKey, algorithm]);
 
   const edges = useMemo<DiagramEdge[]>(
     () => [
@@ -640,7 +643,7 @@ export function LoadBalancerLab({ focus }: LabProps<'load-balancer'>) {
       title="Load Balancer Lab"
       description="Change traffic, pool size and algorithm - then kill a server and watch the health checks take it out of rotation."
       running={running}
-      onToggleRun={() => setRunning((value) => !value)}
+      onRunningChange={setRunning}
       onReset={reset}
       legend={
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
@@ -737,8 +740,8 @@ export function LoadBalancerLab({ focus }: LabProps<'load-balancer'>) {
             <LiveChart
               data={points}
               series={[
-                { key: 'avg', label: 'Avg latency (ms)', color: 'ok' },
-                { key: 'p95', label: 'P95 latency (ms)', color: 'warn' },
+                { key: 'avg', label: 'Avg latency (ms)', color: 'brand' },
+                { key: 'p95', label: 'P95 latency (ms)', color: 'violet' },
               ]}
               variant="line"
               height={150}
@@ -805,7 +808,7 @@ export function LoadBalancerLab({ focus }: LabProps<'load-balancer'>) {
             }}
             description="Each request takes 2x as long there. Compare Round Robin and Least Connections."
           />
-          <div className="rounded-xl border border-line bg-elevated p-3">
+          <div className="border-y border-line py-4">
             <p className="label mb-2">Pool capacity</p>
             <Meter
               value={poolCapacity ? traffic / poolCapacity : 1}
@@ -819,25 +822,29 @@ export function LoadBalancerLab({ focus }: LabProps<'load-balancer'>) {
             description={`Probe every server; eject after failed probes, readmit after ${RISE_THRESHOLD} passes.`}
             hint="Simplified: a probe here fails only when the process is down or booting. A real probe can also time out on an overloaded server."
           />
-          <Slider
-            label="Probe interval"
-            value={intervalSec}
-            min={1}
-            max={10}
-            step={1}
-            onChange={change('intervalSec')}
-            format={(value) => `every ${value} s`}
-            hint="How often the balancer probes each server. Shorter finds a dead server sooner, at the cost of more probe traffic."
-          />
-          <Stepper
-            label="Failures to eject"
-            value={failThreshold}
-            min={1}
-            max={5}
-            onChange={change('failThreshold')}
-            hint="Consecutive failed probes before a server leaves the pool. One is fast but ejects a healthy server on a single slow reply (flapping)."
-          />
-          <div className="rounded-xl border border-line bg-elevated p-3 text-xs text-muted">
+          {healthChecks ? (
+            <>
+              <Slider
+                label="Probe interval"
+                value={intervalSec}
+                min={1}
+                max={10}
+                step={1}
+                onChange={change('intervalSec')}
+                format={(value) => `every ${value} s`}
+                hint="How often the balancer probes each server. Shorter finds a dead server sooner, at the cost of more probe traffic."
+              />
+              <Stepper
+                label="Failures to eject"
+                value={failThreshold}
+                min={1}
+                max={5}
+                onChange={change('failThreshold')}
+                hint="Consecutive failed probes before a server leaves the pool. One is fast but ejects a healthy server on a single slow reply (flapping)."
+              />
+            </>
+          ) : null}
+          <p className="text-xs text-muted">
             {healthChecks ? (
               <>
                 A dead server keeps receiving requests for up to about{' '}
@@ -846,7 +853,7 @@ export function LoadBalancerLab({ focus }: LabProps<'load-balancer'>) {
             ) : (
               <>With no health checks a dead server is never taken out of the pool.</>
             )}
-          </div>
+          </p>
         </>
       }
     >
@@ -854,7 +861,7 @@ export function LoadBalancerLab({ focus }: LabProps<'load-balancer'>) {
         layout={layout}
         edges={edges}
         particles={particleViews}
-        height={505}
+        height={580}
         className="bg-canvas"
       >
         <ArchNode
@@ -884,13 +891,8 @@ export function LoadBalancerLab({ focus }: LabProps<'load-balancer'>) {
             key={server.id}
             kind="server"
             title={server.name}
-            subtitle={
-              poolState(server) ??
-              ([algorithm === 'weighted' ? `weight ${server.weight}` : '', isSlow(server) ? '2x slower' : '']
-                .filter(Boolean)
-                .join(', ') ||
-                undefined)
-            }
+            // The weight is a stat row: "weight 3, 2x slower" does not fit the ~107px box of 8 servers.
+            subtitle={poolState(server) ?? (isSlow(server) ? '2x slower' : undefined)}
             placed={layout[server.id]}
             status={server.status}
             alert={server.status === 'healthy' && server.cpu > 0.9}
@@ -899,6 +901,7 @@ export function LoadBalancerLab({ focus }: LabProps<'load-balancer'>) {
             compact={servers.length > 6}
           >
             <Meter label="CPU" value={server.cpu} size="xs" />
+            {algorithm === 'weighted' ? <NodeStatRow label="Weight" value={server.weight} /> : null}
             <NodeStatRow label="Conns" value={server.active} />
             <NodeStatRow
               label="Latency"

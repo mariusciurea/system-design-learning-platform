@@ -50,13 +50,12 @@ export function search(query: string, limit = 24): SearchResult[] {
     if (value > 0) {
       results.push({
         id: `concept:${concept.slug}`,
-        kind: concept.lab ? 'lab' : 'concept',
+        // Every Concept hosts a Lab, so a Concept result is a Concept: it opens the Concept page.
+        kind: 'concept',
         title: concept.title,
-        subtitle: concept.lab
-          ? `Interactive lab - ${CATEGORY_BY_ID[concept.category].title}`
-          : `${CATEGORY_BY_ID[concept.category].title} - ${concept.difficulty}`,
+        subtitle: `${CATEGORY_BY_ID[concept.category].title} - ${concept.difficulty}`,
         to: `/concepts/${concept.slug}`,
-        score: value + (concept.lab ? 6 : 0),
+        score: value,
       });
     }
   }

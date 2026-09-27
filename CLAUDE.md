@@ -24,7 +24,7 @@ npm run dev      # dev server on http://localhost:5173
 npm run build    # check:visuals + check:content + tsc -b + vite build + check:bundle  (must pass)
 npm run lint     # ESLint (typescript-eslint + react-hooks); CI fails on any finding
 npm test         # the src/**/*.test.ts and scripts/**/*.test.ts files, on Node's own runner (node --test)
-npm run check:visuals   # diagram geometry + wiring: overlap, overflow, truncated labels, replica consistency
+npm run check:visuals   # diagram geometry + wiring (concept, evolution and every Lab): overlap, overflow, truncated labels, replica consistency
 npm run check:content   # every concept has its long-form lesson, a Lab and a 10-question Quiz, and sits in its category file
 npm run check:bundle    # initial JS (entry + modulepreloads) stays under the gzip budget
 npm run preview  # serve the production build
@@ -211,7 +211,10 @@ caller") rather than escaping them.
 ### A new interactive lab
 
 1. Create the component in `src/features/<domain>/<Name>Lab.tsx`, default-exported.
-2. Build it on `LabShell` + `DiagramCanvas` + the engine primitives.
+2. Build it on `LabShell` + `DiagramCanvas` + the engine primitives. Keep `running` in
+   `useLabRunning()` and pass its setter as `onRunningChange`: after the Lab's `onReset` (every
+   control back to its start, simulation state cleared) LabShell pauses the Lab, so Reset always
+   shows the start setup and Run starts it from there.
 3. Add a `LabId` to `src/types/index.ts`.
 4. Add a row to `LABS` in `src/features/labs/registry.ts` (lazy import).
 5. Set `lab: '<id>'` on the concept that should host it.
@@ -269,9 +272,18 @@ The product complaint that shaped this app was "too much text". Concept pages th
   does not draw (either direction counts - a response goes back), and
   **edge labels that land behind a node card** (the SVG wiring layer is painted under the HTML
   nodes, so such a label is simply invisible). Move one with `labelT`, shorten it, or drop it.
-- A node carrying a badge (`isNew` in the evolution stages) needs about 47px more width - the badge
+- The same check covers every Lab Diagram. The Labs build theirs in JSX, so it renders each Lab in
+  Node (`scripts/lab-diagrams.mjs`): as it opens, with every Lab focus, with its sliders and
+  steppers at both ends and toggles off and on, and with each SegmentedControl or Select option.
+  It reads each card's real height from its markup (`scripts/node-box.mjs`) and fails on a card
+  that renders taller than its placed `h`, a cut title or subtitle, overlap, a box past the canvas
+  and a hidden edge label. It cannot reach what only the running simulation changes, choices made
+  with plain buttons, or HTML on a Diagram that is not an `ArchNode`; it prints those limits on
+  every run. `LABS=cdn,proxy npm run check:visuals` checks only those Labs.
+- A node carrying a badge (`isNew` in the evolution stages) needs about 52px more width - the badge
   sits on the title row and the title is `truncate`, so "Replica 1" silently becomes "Replic...".
-  The check knows this; trust it over eyeballing the box.
+  With a subtitle it also makes the card 10px taller. The check knows both; trust it over
+  eyeballing the box.
 ### Diagrams must be true, not balanced
 
 A diagram is read as an architecture claim, so wiring it for visual balance teaches the wrong thing.
@@ -293,6 +305,9 @@ interchangeable, which contradicts the entire stateless/horizontal-scaling lesso
 - A part the story deliberately does not reach (a pruned partition, a cut feature) gets a step with
   `skipped: true`: its wire is shown dashed and no request travels it. Never send a `failure` dot
   there - that tells the learner traffic arrived and broke.
+- Work done inside one part (a browser parsing and painting a page) is a step whose `from` equals
+  its `to`: that part lights up, every wire fades and no request travels, so it needs no wire.
+  Use it only for real work in one part - a hop between two parts still travels a drawn wire.
 - A Walkthrough step shows its caption in a strip above the canvas - never as an edge label (on a
   short edge it lands on a node) and never floated over the canvas (it covers the top-left node).
 - `FlowVisual` auto-fits its spec to the container width (0.5x-1.3x, via `DiagramCanvas`'s `fit`
@@ -300,8 +315,10 @@ interchangeable, which contradicts the entire stateless/horizontal-scaling lesso
   `zoom` only to pin a scale.
 - `FlowVisual` has a Pause/Play control, starts paused under `prefers-reduced-motion`, and stops
   ticking while scrolled off screen (`useAutoplay`). Its nodes and edges are memoized on `spec` (and
-  the active Walkthrough step), so only the particle layer re-renders per frame - keep it that
-  way; every `ArchNode` is a framer-motion `layout` component that measures the DOM on re-render.
+  the active Walkthrough step), so only the particle layer re-renders per frame - keep it that way.
+- `ArchNode` glides to a new placement with a CSS transition (`.arch-node` in
+  `src/styles/index.css`), not an animation library: framer-motion cost every diagram page 42 KB
+  gzip for this one effect. Do not add it back for a node effect.
 
 ## Content conventions
 
@@ -322,8 +339,13 @@ These are editorial rules, not style preferences. They are the reason the app is
 ## Visual conventions
 
 - Colors come from CSS variables in `src/styles/index.css`, exposed to Tailwind as semantic names:
-  `canvas surface elevated line ink muted faint brand ok warn danger info violet`. Never hard-code a
+  `canvas surface elevated line field ink muted faint brand ok warn danger info violet` (`field` is the
+  3:1 border of a form field; `line` only separates surfaces). Never hard-code a
   hex value in a component.
+- Each Category has its own color (`--cat-<id>` in `src/styles/index.css`), for wayfinding only.
+  Set it with `style={categoryStyle(id)}` and use `text-cat`, `bg-cat/10`, `border-cat/30` inside;
+  `CategoryTag` shows a Category as a chip or a label. Never use `ok`/`warn`/`danger` for a
+  Category: those mean status (health, Difficulty, Done).
 - SVG presentation attributes (and anything computed in JS) cannot read `var()`; use
   `useThemeColors()` for real color strings. Do not add a chart library for a new chart - extend
   `LiveChart`; recharts was removed because it cost every chart lab ~96 KB gzip.
@@ -363,15 +385,18 @@ These are editorial rules, not style preferences. They are the reason the app is
   module". Heavy deps reached only from lazy chunks are listed in `optimizeDeps.include` so Vite
   never re-optimizes and force-reloads mid-session.
 - Labs that size node boxes at runtime (load balancer, horizontal scaling, auto scaling, queue) must
-  keep the widest label readable: minimum width is 54 + the title width (the per-letter table in `scripts/check-visuals.mjs`, about 7px a letter), and the whole row must
-  stay inside the 960px canvas.
+  keep the widest label readable: minimum width is 54 + the title width (the per-letter table in `scripts/node-box.mjs`, about 7px a letter), and the whole row must
+  stay inside the 960px canvas. The check renders them at their smallest and largest settings.
 - The Bash tool on this machine has had trouble with large heredocs containing `.tsx`; prefer the
   Write tool for source files.
 - `ArchNode` grows to fit its content and truncates its title, so an undersized box silently
   clips its label or overlaps the node below. `npm run check:visuals` catches both; it runs as part
-  of `npm run build`. Minimum height is 69, +4.5 with a subtitle and +21.5 with a stat row (so 73,
-  90 or 95 - measured in headless Chromium); minimum width is 54 + the per-letter title width table
-  in `scripts/check-visuals.mjs` (about 7px a letter), or the subtitle table (about 6px) if wider.
+  of `npm run build`. A compact card is 68.5px with a title (78.5 not compact), 73 with a subtitle
+  and 83 with a subtitle and a badge; each `NodeStatRow` adds 16.5 plus a 6px gap (the first one
+  adds the card gap, 4 or 6), so a compact card with a subtitle and 2 stat rows is 116 (`CARD` in
+  `scripts/node-box.mjs`, measured in Chromium - not chrome-headless-shell, whose stat rows are 1px
+  taller). Minimum width is 54 + the per-letter title width table in `scripts/node-box.mjs` (about
+  7px a letter), or the subtitle table (about 6px) if wider; 62 + for a card that is not compact.
 - Everything persists to `localStorage` (`sdi:theme`, `sdi:progress:v2`, `sdi:layout` for which
   side panels the learner folded, `sdi:account`, the "was signed in here" mark, and
   `sdi:progress:outbox`, the Concepts the server has not confirmed yet). The app must work fully as a Guest, with no network calls.

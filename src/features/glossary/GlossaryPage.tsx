@@ -5,6 +5,7 @@ import { GLOSSARY } from '@/data/glossary';
 
 export function GlossaryPage() {
   const [query, setQuery] = useState('');
+  const trimmed = query.trim();
 
   const grouped = useMemo(() => {
     const normalised = query.trim().toLowerCase();
@@ -22,6 +23,7 @@ export function GlossaryPage() {
     }
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [query]);
+  const matchCount = grouped.reduce((total, [, entries]) => total + entries.length, 0);
 
   return (
     <div className="px-5 py-8 lg:px-8">
@@ -40,9 +42,19 @@ export function GlossaryPage() {
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Filter terms..."
             aria-label="Filter glossary"
-            className="h-11 w-full rounded-xl border border-line bg-surface pl-10 pr-4 text-sm text-ink outline-none transition-colors placeholder:text-faint focus:border-brand"
+            type="search"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            maxLength={80}
+            // 16px on a touch screen, so iOS does not zoom in when it takes focus.
+            className="h-11 w-full rounded-xl border border-field bg-surface pl-10 pr-4 text-sm text-ink outline-none transition-colors placeholder:text-faint focus:border-brand coarse:text-base [&::-webkit-search-cancel-button]:hidden"
           />
         </div>
+        <p aria-live="polite" className="sr-only">
+          {trimmed ? `${matchCount} ${matchCount === 1 ? 'term matches' : 'terms match'}` : ''}
+        </p>
 
         <div className="mt-6 space-y-8">
           {grouped.map(([letter, entries]) => (
@@ -80,7 +92,16 @@ export function GlossaryPage() {
         </div>
 
         {grouped.length === 0 ? (
-          <p className="mt-10 text-center text-sm text-muted">No terms match &ldquo;{query}&rdquo;.</p>
+          <div className="mt-10 text-center">
+            <p className="break-words text-sm text-muted">No terms match &ldquo;{trimmed}&rdquo;.</p>
+            <button
+              type="button"
+              onClick={() => setQuery('')}
+              className="mt-3 rounded text-sm font-medium text-brand hover:underline"
+            >
+              Show all {GLOSSARY.length} terms
+            </button>
+          </div>
         ) : null}
       </div>
     </div>

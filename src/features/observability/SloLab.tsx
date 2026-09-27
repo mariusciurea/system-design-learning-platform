@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useRef, type ReactNode } from 'react';
 import { Zap } from 'lucide-react';
 import { ArchNode, DiagramCanvas, NodeStatRow, ParticleLegend, type DiagramEdge, type Layout, type ParticleView } from '@/components/architecture';
 import { LiveChart } from '@/components/charts';
@@ -31,6 +31,7 @@ import {
   type MeasurementPoint,
   type SloState,
 } from './sloModel';
+import { useLabRunning } from '@/hooks/useLabRunning';
 
 interface Setup {
   good: GoodDefinition;
@@ -134,7 +135,7 @@ export function SloLab({ focus }: LabProps<'slo'>) {
   const { setup, setSetup, change } = useLabSetup(start);
   const { good, point, countSynthetic, slo, sla, errorRate, slowRate, dropRate, speed } = setup;
 
-  const [running, setRunning] = useState(true);
+  const [running, setRunning] = useLabRunning();
   const sim = useRef<Sim>(createSim());
   const rerender = useRerender(30);
   const { events, log, clear } = useEventLog();
@@ -296,12 +297,18 @@ export function SloLab({ focus }: LabProps<'slo'>) {
       title="SLO Lab"
       description="Measure an SLI, set an SLO, spend its error budget and keep the SLA. A 30-day month runs in a couple of minutes."
       running={running}
-      onToggleRun={() => setRunning((value) => !value)}
+      onRunningChange={setRunning}
       onReset={reset}
       events={events}
       legend={
         <div className="space-y-1.5">
-          <ParticleLegend outcomes={['success', 'warning', 'failure']} />
+          <ParticleLegend
+            outcomes={[
+              { outcome: 'success', label: 'Good request' },
+              { outcome: 'warning', label: 'Slow request or ticket' },
+              { outcome: 'failure', label: 'Failed request, page or credit' },
+            ]}
+          />
           <p className="text-[11px] text-faint">
             Dots are a sample of the traffic, with faulty requests drawn {DOT_FAULT_BOOST}x more often so you can see
             them. Dots into the SLI are what it counts: a request it cannot see sends none.

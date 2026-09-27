@@ -54,18 +54,18 @@ export const gettingStartedDepth: DepthMap = {
     ],
     examples: [
       {
-        title: 'Designing a URL shortener, one bottleneck at a time',
+        title: 'Growing Instagram, one bottleneck at a time',
         setup:
-          'A URL shortener with 100 million redirects per day and 1 million new links per day. Watch how the design grows only when a number forces it.',
+          'Instagram must let people upload a photo, view a home feed, follow accounts and like. Each daily user sends about 30 requests a day, 5% of them writes, and the busiest hour runs at 5 times the daily average. The limits are round planning numbers: 1,000 requests/s for one app server, 10,000 reads/s for one database copy, 10,000 writes/s for one primary. This is the loop the Lab runs, from 100k to 200M daily users.',
         walkthrough: [
-          'Simplest design: one web server plus one Postgres table (short_code, long_url). This genuinely works - do not skip it.',
-          'Estimate: 100M redirects / 86,400 s is about 1,160 reads per second, and 1M / 86,400 is about 12 writes per second. Reads are roughly 100x writes.',
-          'First bottleneck: 1,160 reads per second against one Postgres instance is possible but leaves no headroom at peak. Add a cache in front keyed by short_code. New cost: a deleted link can still resolve until the cache entry expires.',
-          'Second bottleneck: one web server is one point of failure. Add a load balancer and three stateless app servers. New cost: deployments now touch three machines and sessions cannot live in local memory.',
-          'Third bottleneck: storage. 1M links/day x 500 bytes is about 0.5 GB/day, roughly 180 GB/year - one machine handles that for years. So no sharding. Stop here.',
+          'Simplest design at 100k daily users: 100,000 x 30 / 86,400 s x 5 is about 174 requests/s at peak. One App server and one Database carry it with room to spare. Monthly cost x1.',
+          'Round 1, 1M daily users: 1,736 requests/s at peak, and one App server handles 1,000, so the App server is the bottleneck. Three fixes: more servers behind a load balancer (x1 to x1.4, every server must be stateless), an autoscaling pool (x1.2, a spike waits for new servers) or one 8x machine (x2.7, still one server and no bigger size). Pick the load balancer: 3 app servers.',
+          'Round 2, 10M daily users: 27 app servers carry 17,361 requests/s, but 95% of them are feed reads - 16,493 reads/s against 10,000 for one database copy. The Database is the bottleneck. A cache that answers 80% of reads leaves 3,299 reads/s for it and adds x0.2 (x5.3 in all). Its cost: a slightly stale feed.',
+          'Round 3, 200M daily users: 329,861 reads/s at peak, and after the cache 65,972 still reach the Database - the cache bought one round, not three. Six read replicas share them (7 copies, +x2.8). Their cost: replica lag, so you may not see your own post for a moment.',
+          'Still round 3: writes are 5% of 347,222 requests/s, so 17,361 writes/s against 10,000 for one primary. Split the writes into 2 partitions (+x0.5). Their cost: a feed that spans partitions must read them all, and the partition key is hard to change later.',
         ],
         result:
-          'The final design is four boxes, and every one of them was forced by a number. Sharding, Kafka and microservices never appeared because nothing in the estimate asked for them - that restraint is the skill being taught.',
+          'Three rounds, four bottlenecks, each found by a number and fixed with one component whose cost was named. At 200M daily users nothing is over its limit and the bill is about x85 the simplest design - and 522 app servers are most of it: the price of the users, not of the fixes.',
       },
     ],
     jargon: [
@@ -79,6 +79,7 @@ export const gettingStartedDepth: DepthMap = {
       'Design is the set of decisions that are hard to undo; everything else is just code you can rewrite.',
       'Start with the simplest thing that works, then fix exactly one bottleneck at a time.',
       'Every component you add solves one problem and creates another - say the new one out loud.',
+      'A fix that multiplies capacity (a cache, a bigger machine) buys a round; one that grows with the load (servers, replicas, partitions) keeps up, at a price.',
       'Requirements justify architecture. If no number forces a component, delete it.',
     ],
   },
@@ -123,17 +124,17 @@ export const gettingStartedDepth: DepthMap = {
     ],
     examples: [
       {
-        title: 'Turning "design Instagram" into a design',
-        setup: 'You are given three words. Here is how to turn them into something you can actually draw boxes for.',
+        title: 'Turning "design WhatsApp" into a design',
+        setup: 'You are given two words. Here is how to turn them into parts you can draw, each with a reason - the same picture the Requirements Lab opens on for this Concept.',
         walkthrough: [
-          'List candidate features in user language: post a photo, follow a user, view a home feed, like a post, comment, search users, stories, DMs, reels.',
-          'Pick the core three: post a photo, follow a user, view a home feed. Everything else is explicitly out of scope, said out loud.',
-          'Annotate reads and writes: "post a photo" writes one row plus one large object. "View a home feed" reads the follow graph plus recent posts - and is called perhaps 100x more often than posting.',
-          'Notice the ratio: a read-heavy feed with a write-light post path. That single observation is what justifies a CDN, a feed cache, and possibly fan-out on write.',
-          'Check the ugly ones: "a user can delete a photo" means the CDN copy, the feed caches and the object storage all have to forget it. That is a real design constraint you would have missed.',
+          'List candidate features in user language - 7 of them: send messages, receive messages live, group conversations, delivery and read receipts, send images, voice and video calls, stories.',
+          'Pick the core 4: send, receive live, groups and receipts. Say the other 3 out loud as out of scope: images, calls and stories.',
+          'Annotate reads and writes at 1,000 daily users: 20 requests each is 20,000 a day, 10% of them writes, so 2,000 messages stored a day. At a peak of 5x the average that is about 1 request a second - one App server and one Database carry it.',
+          'Map each core feature to the part it forces: send needs an App server and a Database; receiving live needs a WebSocket server holding about 100 connections open (10% of users online at peak); groups need Queue + workers, so a message to a group of 20 becomes 20 deliveries; receipts add no box but make 3 pushes per message.',
+          'Name what the 3 cut features would have added: calls need Media servers, a separate system that relays voice and video; images and stories need Object storage and a CDN. That is 3 parts not built.',
         ],
         result:
-          'Three sentences of scope produced a read/write ratio, a cache requirement and an invalidation problem - the entire skeleton of the architecture, before a single technology was named.',
+          'Four sentences of scope produced 4 parts, each named by the feature that forced it, and kept 3 more - Media servers, Object storage and a CDN - off the bill, before a single technology was argued about.',
       },
     ],
     jargon: [
@@ -201,18 +202,19 @@ export const gettingStartedDepth: DepthMap = {
     ],
     examples: [
       {
-        title: 'What "99.99%" actually commits you to',
+        title: 'What "99.99% for ride requests" commits Uber to',
         setup:
-          'A product owner asks for 99.99% availability on a service that currently runs as a single instance behind a single database. Here is the arithmetic that turns the request into an architecture.',
+          'Uber with its core features - drivers publish their location, riders request a ride and are matched, the trip is tracked live, payment is automatic - at 1k daily users and 99%. The Requirements Lab draws one copy of each part: App server, WebSocket server, Database, Geo index, Queue + workers. It bills 8.5 units a month (one app server = 1) and calls that x1. A ride request that fails is a rider who opens another app, so the target is 99.99%. Here is what the Lab draws on the way there.',
         walkthrough: [
-          '99.99% of a year is 52 minutes of allowed downtime. That is the total budget for the whole year.',
-          'A single ordinary deploy with a restart costs 30-60 seconds. Twelve deploys a month would eat the entire yearly budget on planned work alone, so deploys must become zero-downtime: at least two instances behind a load balancer.',
-          'An unplanned machine failure takes 5-15 minutes to notice and replace by hand. One such incident consumes 20 percent of the budget, so detection and replacement must be automated: health checks plus an auto-scaling group.',
-          'The database is still single. A failover done by a human is 15+ minutes; a managed automatic failover typically takes one to two minutes. So the database needs a standby replica with automated promotion.',
-          'One availability zone going down would exceed the budget by itself, so instances and replicas spread across two or three zones. With a full copy in each, the bill grows roughly 2-3x.',
+          '99.99% of a year is 52 minutes of allowed downtime (525,600 minutes x 0.0001). That is the whole budget for the year, deploys included.',
+          'At 99% the Lab shows five single points: the app server, the WebSocket server, the database, the geo index and the queue + workers. One failure noticed and fixed by hand in 15 minutes uses 29 percent of the 52-minute budget, so a single copy of anything cannot stay.',
+          '99.9% draws redundant instances: App servers x2 and WebSocket x2 behind a Load balancer x2 that health-checks each server and skips a dead one. The load is about 32 requests a second, which one server carries, so the stat row reads 1 for load, +1 for 99.9%. The database, the geo index and the queue + workers are still one copy each: 3 single points. The bill goes from x1 to x1.3.',
+          '99.99% draws multi-zone: region 1 now runs in 3 zones, with one copy of each server tier in every zone - App servers x3 and WebSocket x3, 1 for load, +2 for 99.99%, and Geo index x3 and Queue + workers x3. Losing a whole zone still leaves 2 of the 3 copies serving.',
+          'It also draws automated failover: a failover done by a human takes 15 minutes or more, so the Database becomes Database x2 - a standby copy, promoted automatically when the primary dies. Single points: 5 at 99%, 3 at 99.9%, 0 now.',
+          'The bill: 3 app servers (3) + 3 WebSocket servers (3) + 2 database copies (2 x 3 = 6) + the load balancer pair (0.6) + 3 Queue + workers (3 x 1.5 = 4.5) + 3 Geo index copies (3 x 2 = 6) = 23.1, plus 10% for the traffic between the 3 zones = 25.4 units. 25.4 / 8.5 is x3.',
         ],
         result:
-          'Moving to four nines turned into: load balancer, 2+ app instances, automated health checks, database standby with auto-failover, multi-zone deployment, and roughly 2-3x the bill. None of that was a configuration flag - which is exactly the honest answer to give.',
+          'Four nines for ride requests turned into a load balancer pair, a copy of every tier - geo index and queue included - in each of 3 zones and a database standby promoted automatically - and the monthly bill went from x1 to x3 in the model, the top of the 2-3x rule of thumb, because almost every part now runs three times. None of it was a configuration flag, which is exactly the honest answer to give a product owner.',
       },
     ],
     jargon: [
@@ -254,7 +256,9 @@ peak req/sec   = avg x peak factor            (2x to 10x)
 
 writes/sec     = peak req/sec x write share
 storage/day    = writes/day x bytes per object
-storage/year   = storage/day x 365 x replication factor
+storage/year   = storage/day x 365            (one copy)
+kept           = storage/year x retention years
+stored         = kept x replication factor    (what you pay for)
 
 bandwidth      = req/sec x avg response bytes
 hot set in RAM = active objects x bytes per object`,
@@ -271,14 +275,14 @@ hot set in RAM = active objects x bytes per object`,
       {
         heading: 'Round aggressively, then sanity-check against one machine',
         paragraphs: [
-          'Use 100,000 seconds for a day instead of 86,400, round the big inputs (users, requests, bytes) to powers of ten and the small factors to one significant figure. The estimate is not trying to be accurate; it is trying to answer "which order of magnitude is this?" Getting 11,575 req/sec instead of 10,000 req/sec changes no decision you will make today.',
+          'Use 100,000 seconds for a day instead of 86,400, round the big inputs (users, requests, bytes) to powers of ten and the small factors to one significant figure. The estimate is not trying to be accurate; it is trying to answer "which order of magnitude is this?" Getting 11,574 req/sec instead of 10,000 req/sec changes no decision you will make today.',
           'The decision you are actually making is a category. Under roughly 1,000 requests per second, one well-tuned machine plus a spare is usually enough and the interesting problems are elsewhere. That boundary comes from a common planning number: about 1,000 requests per second per app server when each request does real work, such as a database call. A server returning cached or static answers can do ten times more, so say which one you assumed. Between 1,000 and 50,000 you need horizontal scaling, caching and a serious look at the database. Above that, partitioning and per-region deployment stop being optional.',
           'Storage has the same categories. Under a terabyte, a single database instance is fine for years. Tens of terabytes means partitioning, archival tiers and a real retention policy. Do the multiplication before choosing, because "how much data per year" is the question that decides whether sharding is in your future.',
         ],
         bullets: [
           '1 KB x 1M/day is about 1 GB/day, about 365 GB/year - one machine, no problem.',
           '1 MB x 1M/day is about 1 TB/day, about 365 TB/year - object storage and a retention policy.',
-          'Always multiply storage by the replication factor. Three copies means three times the bill.',
+          'Per year is one copy. Multiply it by the years you keep the data, then by the replication factor: 3 copies means 3 times the bill.',
         ],
       },
     ],
@@ -286,18 +290,19 @@ hot set in RAM = active objects x bytes per object`,
       {
         title: 'Sizing a chat app end to end',
         setup:
-          'A messaging app with 10 million daily active users, each sending 40 messages per day and reading roughly 4x what they send. Average message 200 bytes, plus metadata call it 500 bytes stored.',
+          'A messaging app with 10 million daily active users, each sending 40 messages per day and reading roughly 4x what they send. Average message 200 bytes, plus metadata call it 500 bytes stored. Messages are kept 5 years, in 3 copies. To replay it in the Lab: 200 requests per user, 20% writes, 0.5 KB, peak factor 4.',
         walkthrough: [
           'Writes per day: 10M x 40 = 400M messages. Divided by 86,400, that is about 4,600 writes per second on average.',
           'Reads per day: 4x writes = 1.6B, about 18,500 reads per second on average.',
-          'Peak factor for a single-region consumer app, evening heavy: use 4x. Peak is roughly 18,000 writes/sec and 74,000 reads/sec.',
-          'Storage: 400M x 500 bytes is 200 GB/day. Times 365 is about 73 TB/year, and with 3 replicas about 220 TB/year.',
+          'Peak factor for a single-region consumer app, evening heavy: use 4x. Peak is about 18,500 writes/sec and 74,000 reads/sec.',
+          'Storage per day: 400M x 500 bytes is 200 GB. Per year, one copy: times 365 is 73 TB.',
+          'Retention, then replication: 5 years kept is 365 TB, and 3 copies of it is about 1.1 PB stored.',
           'App tier: about 92,500 peak requests/sec in total, at 1,000 per server, is 93 servers; with 50% headroom call it 140.',
           'Bandwidth on reads: 74,000/sec x 500 bytes is about 37 MB/sec, roughly 300 Mbit/sec - comfortable for a fleet, impossible to ignore for one box.',
           'Hot set: messages from the last day are what people actually re-read. 200 GB does not fit in one cache node, so the cache is either sharded or holds only the last hours of conversations.',
         ],
         result:
-          '74,000 peak reads per second and 73 TB per year is firmly in "partition the data, cache aggressively, many app servers" territory. Ten minutes of arithmetic ruled out the single-database design before anyone wrote code.',
+          '74,000 peak reads per second, 18,500 peak writes per second (past one primary) and 1.1 PB after 5 years is firmly in "partition the data, cache aggressively, many app servers" territory. Ten minutes of arithmetic ruled out the single-database design before anyone wrote code.',
       },
     ],
     jargon: [
@@ -306,13 +311,13 @@ hot set in RAM = active objects x bytes per object`,
       { term: 'Peak factor', plain: 'How much busier the busiest moment is than the average. Typically 2x to 10x.' },
       { term: 'Read/write ratio', plain: 'How many reads happen per write. Decides whether caching and replicas will help at all.' },
       { term: 'Working set', plain: 'The slice of data actually being touched right now. If it fits in RAM, your system feels fast.' },
-      { term: 'Replication factor', plain: 'How many copies of each byte you keep. Multiply all storage estimates by it.' },
+      { term: 'Replication factor', plain: 'How many copies of each byte you keep. The last storage step: multiply the storage you retain by it.' },
     ],
     remember: [
       'A day is about 100,000 seconds. That one rounding does most of the work.',
       'Average load never happens - multiply by a peak factor of 2x to 10x.',
       'Estimates pick a category (one machine, a fleet, a partitioned fleet), not an exact number.',
-      'Storage per year = writes/day x object size x 365 x replicas.',
+      'Storage in three steps: per day x 365 is one year (one copy), x retention years is what you keep, x copies is what you store.',
       'If reads hugely outnumber writes, caching and replicas will help. If not, they will not.',
     ],
   },
@@ -387,7 +392,7 @@ Useful conversions
       {
         title: 'Rounding an estimate and checking it against the exact one',
         setup:
-          'A new app expects 12 million daily active users making 8 requests each, with a 5x peak factor. One app server handles about 1,000 requests per second doing real work. This is the setup the Lab opens on for this Concept.',
+          'A new app expects 12 million daily active users making 8 requests each, with a 5x peak factor. One app server handles about 1,000 requests per second doing real work. This is the setup the Size view of the Lab opens on for this Concept.',
         walkthrough: [
           'Round the big numbers to powers of ten: 12M becomes 10^7 and 8 becomes 10. One went down, one went up.',
           'Requests per day: 10^7 x 10 = 10^8. Exact: 12M x 8 = 96M.',
@@ -423,17 +428,17 @@ Useful conversions
     },
     deepDive: [
       {
-        heading: 'Stage 1: finding the address (and the five caches before it)',
+        heading: 'Stage 1: finding the address, and the five caches on the way',
         paragraphs: [
-          'Before any network traffic happens, the browser checks its own caches: is this URL in the HTTP cache, is there a service worker, is the hostname in the browser DNS cache, then in the operating system (its own cache and the hosts file). A surprising number of "requests" never leave the machine at all, which is why cache headers are among the highest-leverage settings you control.',
-          'If the name is still unresolved, a DNS query goes to a resolver, usually run by your ISP or a public provider. The resolver walks the hierarchy - root servers, then the .com nameservers, then the nameservers for the domain - and caches every answer for as long as its TTL says (the list of .com servers for two days, so a busy resolver almost never needs a root server). A cold lookup can take 20-120 ms; a warm one is free.',
+          'Before any network traffic happens, the browser checks four caches on the machine, in this order. A service worker, if the site registered one, sees the request first and may answer it from its own storage. Next comes the HTTP cache: a fresh stored copy of the page ends the journey right there. Only then does the browser need an address, so it checks the browser DNS cache, then the operating system DNS cache (and the hosts file). A surprising number of "requests" never leave the machine at all, which is why cache headers are among the highest-leverage settings you control.',
+          'If the name is still unresolved, a DNS query goes to a resolver, usually run by your ISP or a public provider. The resolver cache is the fifth cache: if someone asked for this name within its TTL, the answer comes straight back. Otherwise the resolver walks the hierarchy - root servers, then the .com nameservers, then the nameservers for the domain - and caches every answer for as long as its TTL says (the list of .com servers for two days, so a busy resolver almost never needs a root server). A cold lookup can take 20-120 ms; a warm one is free.',
           'This is why DNS TTL is an operational decision, not a detail. A 24-hour TTL makes lookups cheap but means a failover takes a day to be noticed by some clients. A 60-second TTL makes failover fast and multiplies DNS traffic. Teams usually lower the TTL days before a planned migration.',
         ],
       },
       {
         heading: 'Stage 2: opening the pipe, and why the first request is expensive',
         paragraphs: [
-          'With an IP address the browser opens a TCP connection: SYN, SYN-ACK, ACK - one full round trip before a single byte of your data moves. Then TLS negotiates keys, which is one more round trip with TLS 1.3 (two with 1.2). On a 50 ms link, that is 100-150 ms spent before the HTTP request is even sent.',
+          'With an IP address the browser opens a TCP connection: SYN, SYN-ACK, ACK - one full round trip before a single byte of your data moves. Then TLS negotiates keys, which is one more round trip with TLS 1.3 (two with 1.2). On a 50 ms link, that is 100-150 ms spent before the HTTP request is even sent. HTTP/3 runs over QUIC, which merges the transport and TLS handshakes into one round trip.',
           'That fixed cost is why connection reuse matters so much. HTTP keep-alive, HTTP/2 multiplexing and connection pools all exist to avoid paying setup again. It is also why a page that pulls resources from eight different domains is slow in a way no backend optimisation can fix - each new origin means a fresh DNS lookup, TCP handshake and TLS handshake.',
           'It is also the clearest argument for a CDN. The handshake cost depends on distance, so terminating TLS at an edge node 20 km away instead of an origin 8,000 km away cuts the setup cost by an order of magnitude, even for content the edge has to fetch from the origin anyway.',
         ],
@@ -452,7 +457,7 @@ Warm connection: ~50 ms. Same server, same code.`,
       {
         heading: 'Stage 3: inside your system, and stage 4: the browser',
         paragraphs: [
-          'The request usually meets a CDN edge first. Static assets are answered there and your origin never hears about them. A dynamic request passes through to a load balancer, which picks a healthy application server; that server checks a cache, and only on a miss does it query the database. Each of those hops is a place where the request can be answered early - that is the whole design philosophy of the stack.',
+          'The request usually meets a CDN edge first, because DNS sent it there: the owner points the name at the CDN (a CNAME on a name such as www, an ALIAS on the bare example.com), so the address the browser got back belongs to an edge near the user. Static assets are answered there and your origin never hears about them. A dynamic request passes through to a load balancer, which picks a healthy application server; that server checks a cache, and only on a miss does it query the database. Each of those hops is a place where the request can be answered early - that is the whole design philosophy of the stack.',
           'On the way back, the response carries the headers that control the next request: Cache-Control, ETag, Set-Cookie, compression. Getting those right is what turns the second visit into a 304 Not Modified or a pure cache hit, which is the cheapest request you will ever serve.',
           'Then the browser does its own pipeline: parse HTML, discover sub-resources, build the DOM and CSSOM, run blocking scripts, lay out, paint. This half is invisible in server metrics and frequently dominates what the user actually experiences. A 50 ms API response inside a page that blocks on a 2 MB JavaScript bundle is still a slow page.',
         ],

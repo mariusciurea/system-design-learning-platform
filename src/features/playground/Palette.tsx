@@ -17,9 +17,13 @@ export function Palette({ onAdd }: { onAdd: (kind: NodeKind) => void }) {
 
   return (
     <div>
-      <p className="mb-3 text-[11px] leading-relaxed text-faint">
+      {/* A finger cannot drag out of a sheet that covers the canvas, so a touch screen gets only the tap path. */}
+      <p className="mb-3 text-[11px] leading-relaxed text-faint coarse:hidden">
         Drag onto the canvas, or click or tap to add in the middle of the view. To connect two nodes, drag from the bottom
         handle to the top handle of another, or select one and use Connect in the inspector.
+      </p>
+      <p className="mb-3 hidden text-[11px] leading-relaxed text-faint coarse:block">
+        Tap to add in the middle of the view. To connect two nodes, select one and use Connect in the inspector.
       </p>
       <ul className="space-y-1.5">
         {NODE_KIND_LIST.map((kind) => {

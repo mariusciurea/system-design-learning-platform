@@ -22,9 +22,9 @@ const NotFoundPage = lazyWithRetry(() => import('@/features/NotFoundPage'));
 
 function PageFallback() {
   return (
-    <div className="flex h-64 items-center justify-center gap-2 text-sm text-muted">
-      <Loader2 className="h-4 w-4 animate-spin" />
-      Loading workspace...
+    <div role="status" className="flex h-64 items-center justify-center gap-2 text-sm text-muted">
+      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+      Loading page...
     </div>
   );
 }

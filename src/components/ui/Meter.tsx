@@ -45,6 +45,7 @@ export function Meter({ label, value, className, tone, showValue = true, size = 
       <div
         className={cn('relative w-full overflow-hidden rounded-full bg-line', heights[size])}
         role="meter"
+        aria-label={typeof label === 'string' ? label : undefined}
         aria-valuenow={Math.round(value * 100)}
         aria-valuemin={0}
         aria-valuemax={100}

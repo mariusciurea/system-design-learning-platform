@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef } from 'react';
 import { Zap } from 'lucide-react';
 import {
   ArchNode,
@@ -11,7 +11,7 @@ import {
   type ParticleView,
 } from '@/components/architecture';
 import { LiveChart } from '@/components/charts';
-import { Insight, LabShell, MetricsPanel, type MetricItem } from '@/components/learning';
+import { Insight, LabShell, MetricsPanel, SIMULATED_HINT, type MetricItem } from '@/components/learning';
 import { Button, Meter, Slider, Stepper, Toggle } from '@/components/ui';
 import { advanceParticles, nextParticleId, useEventLog, useSeries, useTicker, visualShare, type Particle } from '@/simulations/engine';
 import { useLabSetup } from '@/hooks/useLabSetup';
@@ -19,6 +19,7 @@ import { useRerender } from '@/hooks/useRerender';
 import { clamp, sampleArrivals } from '@/utils/math';
 import { formatLatency, formatNumber, formatPercent } from '@/utils/format';
 import type { LabFocus, LabProps, RequestOutcome } from '@/types';
+import { useLabRunning } from '@/hooks/useLabRunning';
 
 /*
  * Simplified model - chosen to teach, not measured:
@@ -194,7 +195,7 @@ export function QueueLab({ focus }: LabProps<'queue'>) {
   const { queueOn, producerRate, workers, workerRate, bounded, maxDepth, timeoutMs, retries, failureRate, maxAttempts, retryDelay } =
     setup;
 
-  const [running, setRunning] = useState(true);
+  const [running, setRunning] = useLabRunning();
   const state = useRef<State>(createState());
   const rerender = useRerender(30);
   const { events, log, clear } = useEventLog();
@@ -376,22 +377,25 @@ export function QueueLab({ focus }: LabProps<'queue'>) {
   const oldest = oldestAge(current);
   const workerBusy = current.busy;
 
-  // At 8 workers a 106px box clipped "Worker 8" to "Worke...": the title needs
-  // about 110px. A tighter 8px gap keeps a row of 8 x 110px inside the 960px canvas.
-  const workerGap = 8;
-  const workerWidth = Math.max(110, Math.min(150, (920 - (workers - 1) * workerGap) / workers));
+  // At 8 workers a 106px box clipped "Worker 8" to "Worke...", and the subtitle
+  // "10 ms a job" needs about 114px. At 8 workers a tighter 4px gap keeps the
+  // row of 8 x 114px inside the 960px canvas.
+  const workerGap = workers >= 8 ? 4 : 8;
+  const workerWidth = Math.max(114, Math.min(150, (920 - (workers - 1) * workerGap) / workers));
   const xs = spread(workers, 480, workerWidth, workerGap);
+  // Every box is placed at the height its content renders at (measured), so none grows
+  // past its box and the wires meet each card in the middle.
   const layout: Layout = {
-    users: { x: 60, y: 20, w: 170, h: 96 },
-    api: { x: 370, y: 14, w: 220, h: 108 },
+    users: { x: 60, y: 10, w: 170, h: 116 },
+    api: { x: 370, y: 10, w: 220, h: 116 },
   };
-  if (queueOn) layout.queue = { x: 300, y: 172, w: 360, h: 128 };
+  if (queueOn) layout.queue = { x: 300, y: 158, w: 360, h: 155 };
   if (retriesOn) {
-    layout.delayed = { x: 20, y: 180, w: 230, h: 104 };
-    layout.dlq = { x: 710, y: 180, w: 230, h: 104 };
+    layout.delayed = { x: 20, y: 174, w: 230, h: 116 };
+    layout.dlq = { x: 710, y: 174, w: 230, h: 116 };
   }
   for (let index = 0; index < workers; index += 1) {
-    layout[`w${index}`] = { x: xs[index], y: 364, w: workerWidth, h: 108 };
+    layout[`w${index}`] = { x: xs[index], y: 356, w: workerWidth, h: 124 };
   }
 
   const workerIds = Array.from({ length: workers }, (_, index) => `w${index}`);
@@ -464,7 +468,7 @@ export function QueueLab({ focus }: LabProps<'queue'>) {
           key: 'consumerRate',
           label: 'Capacity',
           value: consumerRate,
-          unit: 'msg/s',
+          unit: 'msg/sec',
           tone: consumerRate >= loadRate ? 'ok' : 'danger',
           hint: 'Total processing capacity: workers x per-worker rate.',
         },
@@ -529,7 +533,7 @@ export function QueueLab({ focus }: LabProps<'queue'>) {
           key: 'consumerRate',
           label: 'Capacity',
           value: consumerRate,
-          unit: 'req/s',
+          unit: 'req/sec',
           tone: consumerRate >= producerRate ? 'ok' : 'danger',
           hint: 'Total processing capacity: workers x per-worker rate.',
         },
@@ -589,7 +593,7 @@ export function QueueLab({ focus }: LabProps<'queue'>) {
       title="Message Queue Lab"
       description="Users, an API that produces work, a queue, and workers that consume it. Turn the queue off to make users wait for the workers."
       running={running}
-      onToggleRun={() => setRunning((value) => !value)}
+      onRunningChange={setRunning}
       onReset={() => {
         // Back to this Concept's starting setup, not the lab's global default.
         setSetup(start);
@@ -610,8 +614,16 @@ export function QueueLab({ focus }: LabProps<'queue'>) {
       events={events}
       legend={
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <ParticleLegend outcomes={['success', 'warning', 'failure']} />
-          <span className="text-[11px] text-faint">Dots are a sample of the traffic, not every message.</span>
+          <ParticleLegend
+            outcomes={[
+              { outcome: 'success', label: 'Message or request' },
+              { outcome: 'warning', label: 'Failed task, retried later' },
+              { outcome: 'failure', label: 'Refused, timed out or dead-lettered' },
+            ]}
+          />
+          <span className="text-[11px] text-faint">
+            Dots are a sample of the traffic, not every message. {SIMULATED_HINT}
+          </span>
         </div>
       }
       insight={<Insight>{insight}</Insight>}
@@ -745,7 +757,7 @@ export function QueueLab({ focus }: LabProps<'queue'>) {
               hint="How long a user waits for the answer before giving up with an error."
             />
           )}
-          <div className="rounded-xl border border-line bg-elevated p-3">
+          <div className="border-t border-line pt-4">
             <p className="label mb-2">Capacity balance</p>
             <Meter
               value={consumerRate > 0 ? clamp(loadRate / consumerRate, 0, 1.4) : 1}
@@ -839,7 +851,7 @@ export function QueueLab({ focus }: LabProps<'queue'>) {
 
         {workerIds.map((id, index) => (
           <ArchNode key={id} kind="worker" title={`Worker ${index + 1}`} subtitle={`${formatLatency(jobMs)} a job`} placed={layout[id]} compact>
-            <NodeStatRow label="Rate" value={`${workerRate}/s`} />
+            <NodeStatRow label="Rate" value={`${workerRate}/sec`} />
             <Meter label="Busy" value={workerBusy} size="xs" showValue={false} />
           </ArchNode>
         ))}

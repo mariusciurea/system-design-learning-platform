@@ -20,7 +20,6 @@ export interface Category {
   title: string;
   blurb: string;
   icon: string;
-  accent: 'brand' | 'ok' | 'warn' | 'danger' | 'info' | 'violet';
 }
 
 /** A single trade-off row: what you gain vs what it costs. */
@@ -231,7 +230,9 @@ export interface LabProps<Id extends LabId = LabId> {
   focus?: LabFocus<Id>;
 }
 
-export type NodeStatus = 'healthy' | 'degraded' | 'down' | 'starting';
+/** `overloaded`: the part runs but takes more load than its limit, so it turns requests away. */
+/** `idle`: a part with no health to report (not asked this time, or a person). */
+export type NodeStatus = 'healthy' | 'degraded' | 'down' | 'starting' | 'overloaded' | 'idle';
 
 /** Conceptual model of an infrastructure component inside a simulation. */
 export interface SystemNode {

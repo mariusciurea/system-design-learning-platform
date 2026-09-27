@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useId, useRef, useState, type FormEvent, type InputHTMLAttributes, type ReactNode } from 'react';
-import { Loader2, UserRound, X } from 'lucide-react';
+import { CircleCheck, Loader2, UserRound, X } from 'lucide-react';
 import { Button, Modal, SegmentedControl } from '@/components/ui';
 import { cn } from '@/utils/cn';
 import type { AuthSession } from './firebase';
@@ -11,6 +11,10 @@ type Mode = 'sign-in' | 'sign-up' | 'reset';
 interface SignInDialogProps {
   /** Firebase is loaded: the Google button can open its popup straight from the click. */
   ready: boolean;
+  /** Firebase could not be downloaded. The email form still tries again on submit. */
+  failed: boolean;
+  /** Downloads Firebase again, after `failed`. */
+  onRetry: () => void;
   /** Must be called synchronously from the click - see AuthSession.signInWithGoogle. */
   onGoogle: () => Promise<void>;
   /** Email and password open no popup, so these may wait for Firebase to load. */
@@ -36,9 +40,10 @@ const SUBMIT: Record<Mode, { idle: string; pending: string }> = {
  * Success needs no step here - the Account store closes the dialog once
  * Firebase reports the user.
  */
-export function SignInDialog({ ready, onGoogle, emailAuth, onClose }: SignInDialogProps) {
+export function SignInDialog({ ready, failed, onRetry, onGoogle, emailAuth, onClose }: SignInDialogProps) {
   const titleId = useId();
   const googleErrorId = useId();
+  const googleFailedId = useId();
   const emailErrorId = useId();
   const passwordHintId = useId();
 
@@ -71,9 +76,13 @@ export function SignInDialog({ ready, onGoogle, emailAuth, onClose }: SignInDial
     setResetSentTo(null);
     if (focus) focusNext.current = focus;
   };
+  // What the Learner clicks. Switching while a request runs would show its answer under the wrong form.
+  const pickMode = (next: Mode, focus?: 'email' | 'password') => {
+    if (!busy) switchMode(next, focus);
+  };
 
   const continueWithGoogle = () => {
-    if (busy) return;
+    if (busy || !ready) return;
     setGoogleError(null);
     setGooglePending(true);
     // No await before this call: the popup has to open inside the click.
@@ -147,14 +156,29 @@ export function SignInDialog({ ready, onGoogle, emailAuth, onClose }: SignInDial
         <section aria-label="Sign in with Google">
           <Button
             variant="secondary"
-            className="w-full justify-center"
             onClick={continueWithGoogle}
-            disabled={!ready || googlePending}
-            aria-describedby={googleError ? googleErrorId : undefined}
+            // aria-disabled, not disabled: a disabled button drops focus out of the Modal.
+            aria-disabled={!ready || googlePending}
+            aria-describedby={googleError ? googleErrorId : failed ? googleFailedId : undefined}
+            className={cn('w-full justify-center', !ready && 'cursor-not-allowed opacity-60')}
           >
-            {!ready || googlePending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <GoogleMark />}
-            {!ready ? 'Loading sign-in...' : googlePending ? 'Waiting for Google...' : 'Continue with Google'}
+            {!failed && (!ready || googlePending) ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : (
+              <GoogleMark />
+            )}
+            {failed ? 'Continue with Google' : !ready ? 'Loading sign-in...' : googlePending ? 'Waiting for Google...' : 'Continue with Google'}
           </Button>
+          {failed ? (
+            <div role="alert" className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+              <span id={googleFailedId} className="text-warn">
+                Sign-in could not load. Check your connection.
+              </span>
+              <button type="button" onClick={onRetry} className="rounded font-medium text-brand hover:underline">
+                Try again
+              </button>
+            </div>
+          ) : null}
           {googlePending ? (
             <p className="mt-2 text-xs text-muted">Finish in the Google window. Closing it cancels.</p>
           ) : null}
@@ -165,7 +189,7 @@ export function SignInDialog({ ready, onGoogle, emailAuth, onClose }: SignInDial
           ) : null}
         </section>
 
-        <div className="flex items-center gap-3 text-xs text-faint" aria-hidden>
+        <div className="flex items-center gap-3 text-xs text-muted" aria-hidden>
           <span className="h-px flex-1 bg-line" />
           or with email
           <span className="h-px flex-1 bg-line" />
@@ -182,7 +206,7 @@ export function SignInDialog({ ready, onGoogle, emailAuth, onClose }: SignInDial
               fill
               value={mode}
               options={MODES}
-              onChange={(next) => switchMode(next)}
+              onChange={(next) => pickMode(next)}
               className="w-full"
             />
           )}
@@ -236,9 +260,13 @@ export function SignInDialog({ ready, onGoogle, emailAuth, onClose }: SignInDial
               </p>
             ) : null}
             {resetSentTo ? (
-              <p role="status" className="text-xs text-ok">
-                If an Account uses {resetSentTo}, a link to set a new password is on its way. Check the inbox, and
-                the spam folder.
+              <p role="status" className="flex items-start gap-2 text-xs text-ink">
+                {/* The icon carries the ok color; the sentence stays in ink, readable in both themes. */}
+                <CircleCheck className="mt-px h-3.5 w-3.5 shrink-0 text-ok" aria-hidden />
+                <span className="min-w-0">
+                  If an Account uses <span className="break-all">{resetSentTo}</span>, a link to set a new password is
+                  on its way. Check the inbox, and the spam folder.
+                </span>
               </p>
             ) : null}
 
@@ -264,7 +292,7 @@ export function SignInDialog({ ready, onGoogle, emailAuth, onClose }: SignInDial
           {mode === 'sign-in' ? (
             <button
               type="button"
-              onClick={() => switchMode('reset', 'email')}
+              onClick={() => pickMode('reset', 'email')}
               className="rounded text-xs font-medium text-brand hover:underline"
             >
               Forgot password?
@@ -273,7 +301,7 @@ export function SignInDialog({ ready, onGoogle, emailAuth, onClose }: SignInDial
           {mode === 'reset' ? (
             <button
               type="button"
-              onClick={() => switchMode('sign-in', 'password')}
+              onClick={() => pickMode('sign-in', 'password')}
               className="rounded text-xs font-medium text-brand hover:underline"
             >
               Back to sign in
@@ -308,7 +336,7 @@ const Field = forwardRef<HTMLInputElement, FieldProps>(function Field(
           ref={ref}
           id={id}
           className={cn(
-            'h-10 w-full rounded-xl border border-line bg-canvas px-3 text-sm text-ink placeholder:text-faint coarse:text-base',
+            'h-10 w-full rounded-xl border border-field bg-canvas px-3 text-sm text-ink placeholder:text-faint coarse:text-base',
             'focus:border-brand/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:ring-offset-0',
             trailing ? 'pr-16' : null,
             className,

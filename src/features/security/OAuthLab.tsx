@@ -16,6 +16,7 @@ import { useEventLog, useTicker, type EventTone } from '@/simulations/engine';
 import { useRerender } from '@/hooks/useRerender';
 import { cn } from '@/utils/cn';
 import type { NodeStatus, RequestOutcome } from '@/types';
+import { useLabRunning } from '@/hooks/useLabRunning';
 
 /*
  * The authorization code flow with PKCE, one HTTP message at a time, between
@@ -581,13 +582,14 @@ function buildRun(setup: Setup): Run {
       };
 }
 
-// Design space 960 x 470. Every wire runs through a gap between cards.
+// Design space 960 x 470. Every wire runs through a gap between cards. Each card is as tall as
+// its two stat rows make it, so the wires meet its real edge.
 const LAYOUT: Layout = {
-  user: { x: 30, y: 170, w: 190, h: 118 },
-  auth: { x: 370, y: 20, w: 230, h: 118 },
-  app: { x: 720, y: 170, w: 210, h: 118 },
-  attacker: { x: 370, y: 330, w: 210, h: 118 },
-  res: { x: 720, y: 330, w: 210, h: 118 },
+  user: { x: 30, y: 164, w: 190, h: 130 },
+  auth: { x: 370, y: 16, w: 230, h: 130 },
+  app: { x: 720, y: 164, w: 210, h: 130 },
+  attacker: { x: 370, y: 328, w: 210, h: 130 },
+  res: { x: 720, y: 328, w: 210, h: 130 },
 };
 
 const pairKey = (a: Party, b: Party) => [a, b].sort().join('|');
@@ -659,7 +661,7 @@ export function OAuthLab() {
   const run = useMemo(() => buildRun(setup), [setup]);
   const { steps } = run;
 
-  const [running, setRunning] = useState(true);
+  const [running, setRunning] = useLabRunning();
   const sim = useRef<Sim>({ index: 0, t: 0, hold: 0, done: false, blocked: 0, breached: 0 });
   const rerender = useRerender(30);
   const { events, log, clear } = useEventLog(40);
@@ -719,9 +721,9 @@ export function OAuthLab() {
     rerender();
   };
 
-  const toggleRun = () => {
-    if (sim.current.done) restart();
-    setRunning((value) => !value);
+  const changeRunning = (next: boolean) => {
+    if (next && sim.current.done) restart();
+    setRunning(next);
   };
 
   const s = sim.current;
@@ -811,12 +813,11 @@ export function OAuthLab() {
       title="OAuth Lab"
       description="The authorization code flow with PKCE, one message at a time, between the user, the client app, the authorization server and the resource server. Then attack it and see which defence stops which attack."
       running={running}
-      onToggleRun={toggleRun}
+      onRunningChange={changeRunning}
       onReset={() => {
         setSetup(DEFAULT_SETUP);
         sim.current = { index: 0, t: 0, hold: 0, done: false, blocked: 0, breached: 0 };
         clear();
-        setRunning(true);
       }}
       actions={
         <Button onClick={nextStep}>
@@ -827,7 +828,13 @@ export function OAuthLab() {
       events={events}
       legend={
         <div className="space-y-1">
-          <ParticleLegend outcomes={['success', 'warning', 'failure']} />
+          <ParticleLegend
+            outcomes={[
+              { outcome: 'success', label: 'Message of the flow' },
+              { outcome: 'warning', label: 'Message the attack causes' },
+              { outcome: 'failure', label: 'Refusal' },
+            ]}
+          />
           <p className="text-[11px] text-faint">
             Here a triangle is a message the attack sends or causes, and a cross is a message that refuses the request.
             Dashed red wires are the ones the attacker uses.
@@ -908,9 +915,10 @@ export function OAuthLab() {
                 return (
                   <li
                     key={`${index}-${item.title}`}
+                    aria-current={active ? 'step' : undefined}
                     className={cn(
-                      'flex items-center gap-3 rounded-xl border px-3 py-2 transition-colors',
-                      active ? 'border-brand bg-brand/5' : done ? 'border-line' : 'border-line opacity-50',
+                      'flex items-center gap-3 rounded-lg px-3 py-2 transition-colors',
+                      active ? 'bg-brand/10' : done ? undefined : 'opacity-50',
                     )}
                   >
                     <span className="w-5 shrink-0 font-mono text-[11px] text-faint">{index + 1}</span>
@@ -939,6 +947,7 @@ export function OAuthLab() {
                 <button
                   key={item.value}
                   type="button"
+                  aria-pressed={attack === item.value}
                   onClick={() => change('attack')(item.value)}
                   className={cn(
                     'w-full rounded-lg border px-3 py-2 text-left transition-colors',
@@ -985,7 +994,7 @@ export function OAuthLab() {
             onChange={change('call')}
             hint="Used in the honest flow. The resource server checks it against the token scope."
           />
-          <div className="rounded-xl border border-line bg-elevated p-3 text-[11px] text-muted">
+          <div className="border-t border-line pt-4 text-[11px] text-muted">
             <p className="label mb-2">Which defence stops which attack</p>
             <ul className="space-y-1.5">
               {defences.map((row) => (

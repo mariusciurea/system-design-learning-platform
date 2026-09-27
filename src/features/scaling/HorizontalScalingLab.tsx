@@ -18,6 +18,7 @@ import { computeLoad, type LoadResponse } from '@/simulations/models/load';
 import { useRerender } from '@/hooks/useRerender';
 import { clamp, sampleArrivals } from '@/utils/math';
 import { formatLatency, formatNumber, formatPercent } from '@/utils/format';
+import { useLabRunning } from '@/hooks/useLabRunning';
 
 /**
  * Simplified numbers, chosen to match the Lesson (one server ~500 req/sec). Every request makes one
@@ -47,7 +48,7 @@ interface Snapshot {
  * other half of the idea: with N servers a failure costs 1/N of capacity; with one it costs everything.
  */
 export function HorizontalScalingLab() {
-  const [running, setRunning] = useState(true);
+  const [running, setRunning] = useLabRunning();
   const [traffic, setTraffic] = useState(DEFAULT_TRAFFIC);
   const [servers, setServers] = useState(1);
   const [serverDown, setServerDown] = useState(false);
@@ -107,7 +108,7 @@ export function HorizontalScalingLab() {
       latency,
       errorRate,
     });
-    log(`Captured baseline: ${servers} server(s) at ${formatNumber(traffic)} req/sec`, 'info');
+    log(`Captured baseline: ${servers} server${servers > 1 ? 's' : ''} at ${formatNumber(traffic)} req/sec`, 'info');
   }, [healthy, servers, traffic, perServer, latency, errorRate, log]);
 
   const reset = useCallback(() => {
@@ -158,12 +159,12 @@ export function HorizontalScalingLab() {
   const width = clamp((940 - (servers - 1) * 12) / servers, 106, 180);
   const xs = spread(servers, 480, width, 12);
   const layout: Layout = {
-    users: { x: 390, y: 16, w: 180, h: 60 },
-    lb: { x: 380, y: 130, w: 200, h: 88 },
-    db: { x: 370, y: 500, w: 220, h: 112 },
+    users: { x: 390, y: 16, w: 180, h: 73 },
+    lb: { x: 380, y: 130, w: 200, h: 128 },
+    db: { x: 370, y: 480, w: 220, h: 136 },
   };
   for (let index = 0; index < servers; index += 1) {
-    layout[`s${index}`] = { x: xs[index], y: 290, w: width, h: 152 };
+    layout[`s${index}`] = { x: xs[index], y: 290, w: width, h: 154 };
   }
 
   // Every server is wired to the load balancer and to the database - replicas are interchangeable.
@@ -242,19 +243,27 @@ export function HorizontalScalingLab() {
       title="Horizontal Scaling Lab"
       description="One server cannot keep up. Add instances behind the load balancer, watch each one take a share of the load - and watch the shared database become the next limit."
       running={running}
-      onToggleRun={() => setRunning((value) => !value)}
+      onRunningChange={setRunning}
       onReset={reset}
-      legend={<ParticleLegend outcomes={['success', 'warning', 'failure']} />}
+      legend={
+        <ParticleLegend
+          outcomes={[
+            'success',
+            { outcome: 'warning', label: 'Slow: a server or the database above 85% CPU' },
+            { outcome: 'failure', label: 'Request failed' },
+          ]}
+        />
+      }
       events={events}
       actions={
         <>
           <Button onClick={capture}>
             <Camera className="h-4 w-4" />
-            Capture "before"
+            Capture &ldquo;before&rdquo;
           </Button>
           <Button variant="secondary" onClick={removeServer} disabled={servers <= 1}>
             <Minus className="h-4 w-4" />
-            Remove
+            Remove server
           </Button>
           <Button variant="primary" onClick={addServer} disabled={servers >= MAX_SERVERS}>
             <Plus className="h-4 w-4" />
@@ -314,11 +323,10 @@ export function HorizontalScalingLab() {
             {before ? (
               <div className="grid gap-4 sm:grid-cols-2">
                 {[before, after].map((snapshot, index) => (
-                  <div key={index} className="rounded-xl border border-line p-4">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-faint">
-                      {index === 0 ? 'Before' : 'After'}
+                  <div key={index} className={index === 1 ? 'sm:border-l sm:border-line sm:pl-4' : undefined}>
+                    <p className="text-sm font-semibold text-ink">
+                      {index === 0 ? 'Before' : 'After'}: {snapshot.label}
                     </p>
-                    <p className="mt-1 text-sm font-semibold text-ink">{snapshot.label}</p>
                     <dl className="mt-3 space-y-1.5 font-mono text-xs">
                       <div className="flex justify-between">
                         <dt className="text-faint">CPU</dt>
@@ -391,7 +399,7 @@ export function HorizontalScalingLab() {
             onChange={toggleFailure}
             description="The health check takes it out of the pool"
           />
-          <div className="rounded-xl border border-line bg-elevated p-3">
+          <div className="border-t border-line pt-4">
             <p className="label mb-2">Pool utilization</p>
             <Meter
               value={capacity > 0 ? traffic / capacity : 1}
@@ -402,7 +410,7 @@ export function HorizontalScalingLab() {
               {formatNumber(DB_CAPACITY)} queries/sec. Illustrative numbers, not a benchmark.
             </p>
           </div>
-          <div className="rounded-xl border border-line bg-elevated p-3">
+          <div className="border-t border-line pt-4">
             <p className="label mb-2">What this does not fix</p>
             <ul className="space-y-1 text-[11px] text-muted">
               <li>The shared database still sees every query</li>
@@ -413,7 +421,7 @@ export function HorizontalScalingLab() {
         </>
       }
     >
-      <DiagramCanvas layout={layout} edges={edges} particles={particleViews} height={625} className="bg-canvas">
+      <DiagramCanvas layout={layout} edges={edges} particles={particleViews} height={650} className="bg-canvas">
         <ArchNode kind="client" title="Users" subtitle={`${formatNumber(traffic)} req/sec`} placed={layout.users} compact />
         <ArchNode kind="load-balancer" title="Load Balancer" subtitle="round robin, 2 nodes" placed={layout.lb}>
           <NodeStatRow label="In pool" value={`${healthy}/${servers}`} />

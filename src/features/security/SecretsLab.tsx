@@ -15,6 +15,7 @@ import { advanceParticles, nextParticleId, useEventLog, useTicker, type Particle
 import { useRerender } from '@/hooks/useRerender';
 import { formatSeconds } from '@/utils/format';
 import type { NodeStatus, RequestOutcome } from '@/types';
+import { useLabRunning } from '@/hooks/useLabRunning';
 
 /**
  * Secrets management: three services use a database. The database password
@@ -71,12 +72,13 @@ const POLL_S = 5;
 const FETCH_RETRY_S = 1;
 const LEG_SPEED = 1.4;
 
+// Heights fit the stat rows of each card: two for a service, three for the database.
 const LAYOUT: Layout = {
-  orders: { x: 30, y: 20, w: 200, h: 112 },
-  billing: { x: 30, y: 176, w: 200, h: 112 },
-  reports: { x: 30, y: 332, w: 200, h: 112 },
-  source: { x: 400, y: 16, w: 240, h: 116 },
-  db: { x: 730, y: 176, w: 200, h: 130 },
+  orders: { x: 30, y: 20, w: 200, h: 117 },
+  billing: { x: 30, y: 176, w: 200, h: 117 },
+  reports: { x: 30, y: 332, w: 200, h: 117 },
+  source: { x: 400, y: 16, w: 240, h: 117 },
+  db: { x: 730, y: 172, w: 200, h: 140 },
   attacker: { x: 730, y: 340, w: 200, h: 104 },
 };
 
@@ -224,7 +226,7 @@ const pruneCreds = (state: SimState) => {
 export function SecretsLab() {
   const [setup, setSetup] = useState(DEFAULT_SETUP);
   const { storage, overlap, dynamic, leaseTtl, vaultUp } = setup;
-  const [running, setRunning] = useState(true);
+  const [running, setRunning] = useLabRunning();
   const sim = useRef<SimState>(createState(DEFAULT_SETUP.storage));
   const rerender = useRerender(30);
   const { events, log, clear } = useEventLog();
@@ -711,11 +713,17 @@ export function SecretsLab() {
       title="Secrets Lab"
       description="Keep the database password in code, in a .env file or in a vault. Leak the Orders API key, then rotate it, and see which services break, for how long, and how long the attacker keeps access."
       running={running}
-      onToggleRun={() => setRunning((value) => !value)}
+      onRunningChange={setRunning}
       onReset={reset}
       legend={
         <div className="flex flex-wrap items-center gap-3">
-          <ParticleLegend outcomes={['success', 'warning', 'failure']} />
+          <ParticleLegend
+            outcomes={[
+              { outcome: 'success', label: 'Query, answer or credential' },
+              { outcome: 'warning', label: 'Attacker query or revoke' },
+              { outcome: 'failure', label: 'Rejected login or fetch' },
+            ]}
+          />
           <span className="text-[11px] text-faint">Triangles on the database wires: attacker queries and revocations.</span>
         </div>
       }
@@ -784,7 +792,7 @@ export function SecretsLab() {
             ]}
           />
           <div className="card p-4">
-            <p className="label mb-3">who holds what</p>
+            <p className="label mb-3">Who holds what</p>
             <ul className="space-y-1.5 font-mono text-[11px] text-muted">
               {SERVICES.map((service) => {
                 const held = state.services[service.id].cred;

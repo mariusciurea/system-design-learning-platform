@@ -37,7 +37,7 @@ export const LABS: LabDefinition[] = [
   },
   {
     id: 'capacity',
-    title: 'Capacity Estimation Playground',
+    title: 'Capacity Estimation Lab',
     blurb: 'Turn daily active users into requests per second, servers, storage and bandwidth - exact or rounded to powers of ten - on the parts they size.',
     category: 'getting-started',
     difficulty: 'Beginner',

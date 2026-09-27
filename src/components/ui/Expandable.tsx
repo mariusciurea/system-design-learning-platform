@@ -22,10 +22,10 @@ export function Expandable({ title, children, defaultOpen = false, className, hi
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center gap-2 px-4 py-3 text-left"
+        className="group flex w-full items-center gap-2 rounded-xl px-4 py-3 text-left"
       >
         <ChevronRight
-          className={cn('h-4 w-4 shrink-0 text-faint transition-transform', open && 'rotate-90')}
+          className={cn('h-4 w-4 shrink-0 text-faint transition-[transform,color] group-hover:text-ink', open && 'rotate-90')}
           aria-hidden
         />
         <span className="flex-1 text-sm font-medium text-ink">{title}</span>

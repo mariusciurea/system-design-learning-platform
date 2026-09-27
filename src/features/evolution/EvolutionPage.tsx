@@ -96,15 +96,15 @@ export function EvolutionPage() {
               <button
                 type="button"
                 onClick={() => go(position)}
-                aria-label={`Stage ${position + 1}: ${item.title}`}
+                // The titles already start with "Stage N - ".
+                aria-label={item.title}
+                title={item.title}
                 aria-current={position === index ? 'step' : undefined}
                 className={cn(
                   'w-full rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors sm:w-auto',
                   position === index
                     ? 'border-brand bg-brand/10 text-brand'
-                    : position < index
-                      ? 'border-ok/40 text-ok'
-                      : 'border-line text-faint hover:border-brand/40 hover:text-ink',
+                    : 'border-line text-muted hover:border-brand/40 hover:text-ink',
                 )}
               >
                 {position + 1}
@@ -250,6 +250,7 @@ export function EvolutionPage() {
                     <button
                       key={option.label}
                       type="button"
+                      aria-pressed={isChosen}
                       onClick={() => setAnswered(position)}
                       className={cn(
                         'w-full rounded-xl border px-3.5 py-2.5 text-left text-xs transition-colors',
@@ -269,16 +270,19 @@ export function EvolutionPage() {
                 })}
               </div>
 
-              {chosen ? (
-                <p
-                  className={cn(
-                    'mt-3 rounded-xl border p-3 text-xs leading-relaxed',
-                    chosen.recommended ? 'border-ok/30 bg-ok/5 text-muted' : 'border-warn/30 bg-warn/5 text-muted',
-                  )}
-                >
-                  {chosen.feedback}
-                </p>
-              ) : null}
+              {/* Always rendered, so a screen reader hears the feedback when an option is picked. */}
+              <div aria-live="polite">
+                {chosen ? (
+                  <p
+                    className={cn(
+                      'mt-3 rounded-xl border p-3 text-xs leading-relaxed',
+                      chosen.recommended ? 'border-ok/30 bg-ok/5 text-muted' : 'border-warn/30 bg-warn/5 text-muted',
+                    )}
+                  >
+                    {chosen.feedback}
+                  </p>
+                ) : null}
+              </div>
             </div>
 
             <div className="card p-4">

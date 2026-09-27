@@ -232,18 +232,18 @@ export function ComparePage() {
           })}
         </div>
 
-        {/* Phone: one card per dimension, the two values stacked and labelled. */}
+        {/* Phone: one row per dimension, the two values stacked and labelled. */}
         <ul className="mt-4 overflow-hidden rounded-2xl border border-line bg-surface sm:hidden">
           {comparison.rows.map((row) => (
             <li key={row.dimension} className="border-b border-line p-4 last:border-0">
               <p className="text-sm font-semibold text-ink">{row.dimension}</p>
-              <dl className="mt-2.5 space-y-2">
+              <dl className="-mx-3 mt-1.5 space-y-0.5">
                 {(['a', 'b'] as const).map((side) => {
                   const stronger = row.favours === side;
                   return (
                     <div
                       key={side}
-                      className={cn('rounded-xl border px-3 py-2.5', stronger ? 'border-ok/30 bg-ok/5' : 'border-line')}
+                      className={cn('rounded-lg px-3 py-2', stronger && 'bg-ok/5')}
                     >
                       <dt className="flex items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-wide text-faint">
                         <span className="min-w-0">{comparison[side].name}</span>
@@ -260,20 +260,34 @@ export function ComparePage() {
           ))}
         </ul>
 
-        <div className="mt-4 hidden overflow-hidden rounded-2xl border border-line bg-surface sm:block">
-          <div className="grid grid-cols-[150px_1fr_1fr] gap-px border-b border-line bg-elevated">
-            <span className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-faint">Dimension</span>
-            <span className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-faint">
+        {/* A grid drawn as a table, so a screen reader announces each value with its column. */}
+        <div
+          role="table"
+          aria-label={comparison.title}
+          className="mt-4 hidden overflow-hidden rounded-2xl border border-line bg-surface sm:block"
+        >
+          <div role="row" className="grid grid-cols-[150px_1fr_1fr] gap-px border-b border-line bg-elevated">
+            <span role="columnheader" className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-faint">
+              Dimension
+            </span>
+            <span role="columnheader" className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-faint">
               {comparison.a.name}
             </span>
-            <span className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-faint">
+            <span role="columnheader" className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-faint">
               {comparison.b.name}
             </span>
           </div>
           {comparison.rows.map((row) => (
-            <div key={row.dimension} className="grid grid-cols-[150px_1fr_1fr] gap-px border-b border-line last:border-0">
-              <span className="px-4 py-3 text-xs font-medium text-ink">{row.dimension}</span>
+            <div
+              key={row.dimension}
+              role="row"
+              className="grid grid-cols-[150px_1fr_1fr] gap-px border-b border-line last:border-0"
+            >
+              <span role="rowheader" className="px-4 py-3 text-xs font-medium text-ink">
+                {row.dimension}
+              </span>
               <span
+                role="cell"
                 className={cn(
                   'px-4 py-3 text-xs',
                   row.favours === 'a' ? 'bg-ok/5 text-ink' : 'text-muted',
@@ -283,6 +297,7 @@ export function ComparePage() {
                 {row.favours === 'a' ? <Badge tone="ok" className="ml-2">stronger</Badge> : null}
               </span>
               <span
+                role="cell"
                 className={cn(
                   'px-4 py-3 text-xs',
                   row.favours === 'b' ? 'bg-ok/5 text-ink' : 'text-muted',

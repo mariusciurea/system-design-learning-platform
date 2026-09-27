@@ -104,7 +104,7 @@ export const LiveChart = memo(function LiveChart({
           aria-label={`Live chart: ${summary}`}
           onPointerMove={onPointerMove}
           onPointerLeave={() => setHover(null)}
-          className="block touch-none"
+          className="block touch-none tabular-nums"
         >
           <defs>
             {series.map((item) => (
@@ -215,7 +215,7 @@ export const LiveChart = memo(function LiveChart({
       ) : null}
 
       {showLegend ? (
-        <div className="flex h-[22px] items-center justify-center gap-4 text-[11px]" style={{ color: colors.muted }}>
+        <div className="flex min-h-[22px] flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[11px]" style={{ color: colors.muted }}>
           {series.map((item) => (
             <span key={item.key} className="flex items-center gap-1.5">
               <svg width={16} height={8} aria-hidden>

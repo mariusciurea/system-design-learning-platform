@@ -17,6 +17,7 @@ import { useRerender } from '@/hooks/useRerender';
 import { clamp, mulberry32, sampleArrivals } from '@/utils/math';
 import { formatLatency, formatNumber } from '@/utils/format';
 import { cn } from '@/utils/cn';
+import { useLabRunning } from '@/hooks/useLabRunning';
 
 interface Row {
   id: number;
@@ -108,9 +109,9 @@ interface State {
 const createState = (): State => ({ particles: [], scan: null });
 
 const LAYOUT: Layout = {
-  app: { x: 20, y: 160, w: 180, h: 120 },
-  db: { x: 280, y: 150, w: 210, h: 140 },
-  index: { x: 570, y: 30, w: 360, h: 170 },
+  app: { x: 12, y: 156, w: 200, h: 128 },
+  db: { x: 280, y: 145, w: 210, h: 151 },
+  index: { x: 570, y: 30, w: 360, h: 173 },
   table: { x: 570, y: 250, w: 360, h: 160 },
 };
 
@@ -118,7 +119,7 @@ const LAYOUT: Layout = {
 const STRIP_CELLS = 40;
 
 export function IndexingLab() {
-  const [running, setRunning] = useState(true);
+  const [running, setRunning] = useLabRunning();
   const [tableSize, setTableSize] = useState(8000);
   const [hasIndex, setHasIndex] = useState(false);
   const [target, setTarget] = useState('');
@@ -310,13 +311,17 @@ export function IndexingLab() {
 
   const plan = hasIndex ? 'Index Scan' : 'Seq Scan';
   const pagesPerRead = hasIndex ? indexPages : scanPages;
+  // Colour follows what a read cost, measured against one index lookup: a scan that stops on an early row is cheap too.
+  const costTone = (pages: number): 'ok' | 'warn' | 'danger' =>
+    pages <= indexPages ? 'ok' : pages <= indexPages * 10 ? 'warn' : 'danger';
+  const resultTone = result ? costTone(result.pagesRead) : 'neutral';
 
   return (
     <LabShell
       title="Database Indexing Lab"
       description={`A users table with ${formatNumber(tableSize)} rows in ${formatNumber(tablePages)} pages. Find one row with and without an index, and see what the index costs on writes.`}
       running={running}
-      onToggleRun={() => setRunning((value) => !value)}
+      onRunningChange={setRunning}
       onReset={reset}
       events={events}
       legend={
@@ -395,7 +400,7 @@ export function IndexingLab() {
                 key: 'pagesRead',
                 label: 'Pages read',
                 value: result ? formatNumber(scanning && result.mode === 'scan' ? scanPagesSoFar : result.pagesRead) : '-',
-                tone: result?.mode === 'index' ? 'ok' : result ? 'danger' : 'neutral',
+                tone: resultTone,
                 hint: 'The database reads 8 KB pages, not rows. About 100 rows per table page here (simplified).',
                 simulated: true,
               },
@@ -403,13 +408,13 @@ export function IndexingLab() {
                 key: 'rowsScanned',
                 label: 'Rows inspected',
                 value: result ? formatNumber(scanning && result.mode === 'scan' ? scanPosition : result.rowsInspected) : '-',
-                tone: result?.mode === 'index' ? 'ok' : result ? 'danger' : 'neutral',
+                tone: resultTone,
               },
               {
                 key: 'queryTime',
                 label: 'Query time',
                 value: result ? formatLatency(result.timeMs) : '-',
-                tone: result?.mode === 'index' ? 'ok' : result ? 'danger' : 'neutral',
+                tone: resultTone,
                 hint: 'Estimated from pages read - the shape of the curve is what matters, not the exact number.',
                 simulated: true,
               },
@@ -543,7 +548,7 @@ export function IndexingLab() {
             format={(value) => `${formatNumber(value)} writes/sec`}
             hint="Every write must update every index on the table."
           />
-          <div className="rounded-xl border border-line bg-elevated p-3">
+          <div className="border-t border-line pt-4">
             <p className="label mb-2">Write path cost</p>
             <Meter
               value={writeLoad.cpu}
@@ -561,7 +566,7 @@ export function IndexingLab() {
               </p>
             ) : null}
           </div>
-          <div className="flex items-start gap-2 rounded-xl border border-line bg-elevated p-3 text-[11px] text-muted">
+          <div className="flex items-start gap-2 text-[11px] text-muted">
             <Database className="mt-0.5 h-3.5 w-3.5 shrink-0 text-faint" />
             <span>
               An index on a low-selectivity column (a boolean, a status with three values) usually will not be used -
@@ -685,7 +690,7 @@ export function IndexingLab() {
           )}`}
           pages={results.scan ? (scanning ? scanPagesSoFar : results.scan.pagesRead) : null}
           time={results.scan ? results.scan.timeMs : null}
-          tone="danger"
+          tone={results.scan ? costTone(results.scan.pagesRead) : 'neutral'}
         />
         <QueryPanel
           title="With index"
@@ -698,7 +703,7 @@ export function IndexingLab() {
           }
           pages={results.index ? results.index.pagesRead : null}
           time={results.index ? results.index.timeMs : null}
-          tone="ok"
+          tone={results.index ? costTone(results.index.pagesRead) : 'neutral'}
         />
       </div>
     </LabShell>
@@ -771,7 +776,7 @@ function BTreeView({
               const onPath = index === path[level];
               return (
                 <span key={index} className={chip(onPath)}>
-                  {leaf && onPath ? email.slice(0, 14) : `page ${index + 1}`}
+                  {leaf && onPath ? (email.length > 14 ? `${email.slice(0, 13)}...` : email) : `page ${index + 1}`}
                 </span>
               );
             })}
@@ -813,7 +818,7 @@ function VisibleRows({
           >
             <td className="px-4 py-1.5 text-faint">{row.id}</td>
             <td className="px-4 py-1.5 text-muted">{row.name}</td>
-            <td className={cn('px-4 py-1.5', isTarget ? 'text-ok' : 'text-ink')}>{row.email}</td>
+            <td className={cn('px-4 py-1.5', isTarget ? 'font-semibold text-brand' : 'text-ink')}>{row.email}</td>
             <td className="px-4 py-1.5 text-muted">{row.country}</td>
             <td className="px-4 py-1.5 text-faint">{row.createdAt}</td>
           </tr>
@@ -822,6 +827,8 @@ function VisibleRows({
     </>
   );
 }
+
+const QUERY_TONE = { ok: 'text-ok', warn: 'text-warn', danger: 'text-danger', neutral: 'text-ink' } as const;
 
 function QueryPanel({
   title,
@@ -838,26 +845,28 @@ function QueryPanel({
   plan: string;
   pages: number | null;
   time: number | null;
-  tone: 'ok' | 'danger';
+  tone: 'ok' | 'warn' | 'danger' | 'neutral';
 }) {
+  const valueClass = cn('font-mono text-lg font-semibold', QUERY_TONE[tone]);
   return (
-    <div className={cn('rounded-2xl border p-4', tone === 'ok' ? 'border-ok/30' : 'border-danger/30')}>
-      <div className="flex items-baseline justify-between">
+    // min-w-0: in the one-column phone grid the SQL would otherwise widen the panel past its card, which clips it.
+    <div className="min-w-0 rounded-2xl border border-line p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-2">
         <h3 className="text-sm font-semibold text-ink">{title}</h3>
         <span className="text-[11px] text-faint">{subtitle}</span>
       </div>
       <pre className="ascii mt-3">{sql}</pre>
       <pre className="ascii mt-2 text-[11px]">{plan}</pre>
       <div className="mt-3 grid grid-cols-2 gap-2">
-        <div className="rounded-lg border border-line bg-elevated px-3 py-2">
+        <div>
           <p className="label">Pages read</p>
-          <p className={cn('font-mono text-lg font-semibold', tone === 'ok' ? 'text-ok' : 'text-danger')}>
+          <p className={valueClass}>
             {pages === null ? '-' : formatNumber(pages)}
           </p>
         </div>
-        <div className="rounded-lg border border-line bg-elevated px-3 py-2">
+        <div>
           <p className="label">Query time</p>
-          <p className={cn('font-mono text-lg font-semibold', tone === 'ok' ? 'text-ok' : 'text-danger')}>
+          <p className={valueClass}>
             {time === null ? '-' : formatLatency(time)}
           </p>
         </div>

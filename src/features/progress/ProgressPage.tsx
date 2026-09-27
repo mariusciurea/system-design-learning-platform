@@ -1,10 +1,12 @@
 import { Link } from 'react-router-dom';
-import { Check, LogIn, RotateCcw } from 'lucide-react';
+import { Check, LogIn, RotateCcw, X } from 'lucide-react';
 import { Button, Meter } from '@/components/ui';
 import { useAccount } from '@/app/providers/AccountProvider';
-import { CATEGORIES } from '@/data/categories';
-import { CONCEPTS_BY_CATEGORY, CONCEPT_BY_SLUG } from '@/data/concepts';
+import { CATEGORIES, categoryStyle } from '@/data/categories';
+import { CategoryIcon } from '@/data/categoryIcons';
+import { CONCEPT_BY_SLUG } from '@/data/concepts';
 import { useProgress } from '@/app/providers/ProgressProvider';
+import { passMark } from '@/app/providers/progressState';
 
 export function ProgressPage() {
   const { overall, categoryProgress, completed, quiz, visited, synced, reset } = useProgress();
@@ -29,7 +31,7 @@ export function ProgressPage() {
           <div className="flex flex-wrap gap-2">
             {!synced && available ? (
               <Button variant="secondary" onClick={openSignIn}>
-                <LogIn className="h-4 w-4" />
+                <LogIn className="h-4 w-4" aria-hidden />
                 Sign in
               </Button>
             ) : null}
@@ -37,12 +39,12 @@ export function ProgressPage() {
               variant="secondary"
               onClick={() => {
                 const question = synced
-                  ? 'This clears your progress on every device. It cannot be undone.'
+                  ? 'Reset all progress? This clears it on every device, and cannot be undone.'
                   : 'Reset all progress? This cannot be undone.';
                 if (window.confirm(question)) reset();
               }}
             >
-              <RotateCcw className="h-4 w-4" />
+              <RotateCcw className="h-4 w-4" aria-hidden />
               Reset progress
             </Button>
           </div>
@@ -50,12 +52,15 @@ export function ProgressPage() {
 
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
           <div className="rounded-2xl border border-line bg-surface p-5">
-            <p className="label">Completed</p>
-            <p className="metric-value mt-1 text-ok">
+            <p className="label">Done</p>
+            <p className="metric-value mt-1 text-ink">
               {overall.done}
-              <span className="text-sm font-normal text-faint"> / {overall.total}</span>
+              <span className="text-sm font-normal text-muted"> of {overall.total}</span>
             </p>
-            <Meter value={overall.percent / 100} showValue={false} className="mt-3" />
+            {/* The number above says it; the bar is only its picture. Always ok: done is never a warning. */}
+            <div aria-hidden className="mt-3">
+              <Meter value={overall.percent / 100} tone="ok" showValue={false} />
+            </div>
           </div>
           <div className="rounded-2xl border border-line bg-surface p-5">
             <p className="label">Concepts opened</p>
@@ -68,84 +73,99 @@ export function ProgressPage() {
         </div>
 
         <section className="mt-8">
-          <h2 className="text-sm font-semibold text-ink">By section</h2>
-          <div className="mt-3 space-y-2">
+          <h2 className="text-sm font-semibold text-ink">By Category</h2>
+          <ul className="mt-3 space-y-2">
             {CATEGORIES.map((category) => {
               const progress = categoryProgress(category.id);
               return (
-                <Link
-                  key={category.id}
-                  to={`/categories/${category.id}`}
-                  className="flex items-center gap-4 rounded-xl border border-line bg-surface px-4 py-3 transition-colors hover:border-brand/50"
-                >
-                  <span className="w-44 shrink-0 text-sm text-ink">{category.title}</span>
-                  <Meter value={progress.percent / 100} showValue={false} className="flex-1" />
-                  <span className="w-20 shrink-0 text-right font-mono text-xs text-muted">
-                    {progress.done}/{progress.total}
-                  </span>
-                  <span className="w-12 shrink-0 text-right font-mono text-xs text-ok">{progress.percent}%</span>
-                </Link>
+                <li key={category.id}>
+                  <Link
+                    to={`/categories/${category.id}`}
+                    style={categoryStyle(category.id)}
+                    className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-line bg-surface px-3 py-3 transition-colors hover:border-brand/50 sm:flex-nowrap sm:gap-4 sm:px-4"
+                  >
+                    {/* A phone gives the name its own line, so no Category name is cut short. */}
+                    <span className="flex w-full min-w-0 shrink-0 items-center gap-2.5 text-sm text-ink sm:w-52">
+                      <CategoryIcon name={category.icon} className="h-4 w-4 shrink-0 text-cat" />
+                      <span className="truncate">{category.title}</span>
+                    </span>
+                    <div aria-hidden className="min-w-0 flex-1">
+                      <Meter value={progress.percent / 100} tone="ok" showValue={false} />
+                    </div>
+                    <span className="w-12 shrink-0 text-right font-mono text-xs tabular-nums text-muted sm:w-20">
+                      <span className="sr-only">Done: </span>
+                      {progress.done}/{progress.total}
+                    </span>
+                    {/* The done count says the same; a phone has no room for both. */}
+                    <span className="hidden w-12 shrink-0 text-right font-mono text-xs tabular-nums text-muted sm:inline">
+                      {progress.percent}%
+                    </span>
+                  </Link>
+                </li>
               );
             })}
-          </div>
+          </ul>
         </section>
 
         {quizEntries.length > 0 ? (
           <section className="mt-8">
             <h2 className="text-sm font-semibold text-ink">Quiz results</h2>
-            <div className="mt-3 space-y-2">
+            <ul className="mt-3 space-y-2">
               {quizEntries.map(([slug, result]) => {
                 const concept = CONCEPT_BY_SLUG.get(slug);
                 if (!concept) return null;
-                const ratio = result.total ? result.correct / result.total : 0;
+                const passed = result.total > 0 && result.correct >= passMark(result.total);
                 return (
-                  <Link
-                    key={slug}
-                    to={`/concepts/${slug}`}
-                    className="flex items-center justify-between gap-4 rounded-xl border border-line bg-surface px-4 py-3 transition-colors hover:border-brand/50"
-                  >
-                    <span className="text-sm text-ink">{concept.title}</span>
-                    <span className={`font-mono text-xs ${ratio >= 0.7 ? 'text-ok' : 'text-warn'}`}>
-                      {result.correct}/{result.total}
-                    </span>
-                  </Link>
+                  <li key={slug}>
+                    <Link
+                      to={`/concepts/${slug}`}
+                      className="flex items-center justify-between gap-4 rounded-xl border border-line bg-surface px-4 py-3 transition-colors hover:border-brand/50"
+                    >
+                      <span className="min-w-0 text-sm text-ink">{concept.title}</span>
+                      {/* Passed or not is said in words too, never by the color alone. */}
+                      <span className="flex shrink-0 items-center gap-1.5 font-mono text-xs tabular-nums text-muted">
+                        {passed ? (
+                          <Check className="h-3.5 w-3.5 text-ok" aria-hidden />
+                        ) : (
+                          <X className="h-3.5 w-3.5 text-warn" aria-hidden />
+                        )}
+                        <span className="sr-only">{passed ? 'Passed, ' : 'Not passed yet, '}</span>
+                        {result.correct}/{result.total}
+                      </span>
+                    </Link>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           </section>
         ) : null}
 
         <section className="mt-8">
-          <h2 className="text-sm font-semibold text-ink">Completed concepts</h2>
+          <h2 className="text-sm font-semibold text-ink">Done</h2>
           {Object.keys(completed).length === 0 ? (
             <p className="mt-2 text-sm text-muted">
-              Nothing completed yet. Mark a concept complete, or score 70% on its quiz.
+              No Concept is Done yet. Mark one Done on its page, or score 70% or more on its Quiz.
             </p>
           ) : (
-            <div className="mt-3 flex flex-wrap gap-2">
+            <ul className="mt-3 flex flex-wrap gap-2">
               {Object.keys(completed).map((slug) => {
                 const concept = CONCEPT_BY_SLUG.get(slug);
                 if (!concept) return null;
                 return (
-                  <Link
-                    key={slug}
-                    to={`/concepts/${slug}`}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-ok/30 bg-ok/5 px-3 py-1.5 text-xs text-ok transition-colors hover:border-ok"
-                  >
-                    <Check className="h-3 w-3" />
-                    {concept.title}
-                  </Link>
+                  <li key={slug}>
+                    <Link
+                      to={`/concepts/${slug}`}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-ok/30 bg-ok/5 px-3 py-1.5 text-xs text-ink transition-colors hover:border-ok"
+                    >
+                      <Check className="h-3 w-3 text-ok" aria-hidden />
+                      {concept.title}
+                    </Link>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           )}
         </section>
-
-        <p className="mt-10 text-xs text-faint">
-          {CONCEPTS_BY_CATEGORY['getting-started'].length > 0
-            ? 'Tip: start with Getting Started, then Scaling - the later sections assume both.'
-            : null}
-        </p>
       </div>
     </div>
   );

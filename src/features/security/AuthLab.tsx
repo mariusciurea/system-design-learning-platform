@@ -7,6 +7,7 @@ import { useRerender } from '@/hooks/useRerender';
 import { cn } from '@/utils/cn';
 import { formatNumber } from '@/utils/format';
 import type { LabFocus, LabProps, RequestOutcome } from '@/types';
+import { useLabRunning } from '@/hooks/useLabRunning';
 
 /*
  * The Auth Lab: one request path with two checkpoints. The API gateway asks
@@ -356,14 +357,16 @@ const createState = (): SimState => ({
 });
 
 // The three identity sources sit under the gateway, so each wire leaves its bottom edge.
+// Heights fit the stat rows each card holds (a card grows past its box otherwise), and the
+// row centres stay on one line so the request wires run straight.
 const LAYOUT: Layout = {
   client: { x: 20, y: 130, w: 190, h: 110 },
-  gateway: { x: 270, y: 105, w: 220, h: 160 },
+  gateway: { x: 270, y: 98, w: 220, h: 175 },
   service: { x: 550, y: 105, w: 220, h: 160 },
-  db: { x: 810, y: 130, w: 140, h: 110 },
-  sessions: { x: 80, y: 360, w: 190, h: 110 },
-  keys: { x: 285, y: 360, w: 190, h: 110 },
-  issuer: { x: 490, y: 360, w: 190, h: 110 },
+  db: { x: 800, y: 120, w: 150, h: 130 },
+  sessions: { x: 70, y: 345, w: 195, h: 130 },
+  keys: { x: 280, y: 345, w: 195, h: 130 },
+  issuer: { x: 490, y: 345, w: 195, h: 130 },
 };
 
 export function AuthLab({ focus }: LabProps<'auth'>) {
@@ -371,7 +374,7 @@ export function AuthLab({ focus }: LabProps<'auth'>) {
   const start = focus ? FOCUS_SETUPS[focus] : DEFAULT_SETUP;
   // Every control lives in one object, so Reset cannot miss one.
   const [setup, setSetup] = useState(start);
-  const [running, setRunning] = useState(true);
+  const [running, setRunning] = useLabRunning();
   const state = useRef<SimState>(createState());
   const rerender = useRerender(30);
   const { events, log, clear } = useEventLog();
@@ -486,9 +489,17 @@ export function AuthLab({ focus }: LabProps<'auth'>) {
       title="Auth Lab"
       description="One request, two checkpoints. The gateway asks who is calling - by session, API key or access token - and answers 401 when it cannot tell; the service asks whether that caller may do this to this invoice (403 when not)."
       running={running}
-      onToggleRun={() => setRunning((value) => !value)}
+      onRunningChange={setRunning}
       onReset={reset}
-      legend={<ParticleLegend outcomes={['success', 'warning', 'failure']} />}
+      legend={
+        <ParticleLegend
+          outcomes={[
+            { outcome: 'success', label: 'Request or 200 answer' },
+            { outcome: 'warning', label: '200 to the wrong caller' },
+            { outcome: 'failure', label: '401, 403 or 404 answer' },
+          ]}
+        />
+      }
       events={events}
       insight={<Insight>{insightFor(setup, decision)}</Insight>}
       metrics={

@@ -28,6 +28,7 @@ import { useRerender } from '@/hooks/useRerender';
 import { clamp, sampleArrivals } from '@/utils/math';
 import { formatLatency, formatNumber, formatPercent } from '@/utils/format';
 import type { LabFocus, LabProps, SimulatedRequest } from '@/types';
+import { useLabRunning } from '@/hooks/useLabRunning';
 
 /**
  * Simplified numbers, chosen to match the table in the Caching Lesson (hit 1 ms,
@@ -46,10 +47,10 @@ const PARTICLE_BUDGET = 110;
 const INSPECTABLE_REQUESTS = 140;
 
 const LAYOUT: Layout = {
-  users: { x: 60, y: 210, w: 150, h: 70 },
-  api: { x: 280, y: 200, w: 170, h: 92 },
-  cache: { x: 520, y: 60, w: 210, h: 160 },
-  db: { x: 520, y: 320, w: 210, h: 128 },
+  users: { x: 60, y: 210, w: 150, h: 74 },
+  api: { x: 280, y: 200, w: 170, h: 94 },
+  cache: { x: 520, y: 30, w: 210, h: 204 },
+  db: { x: 520, y: 290, w: 210, h: 160 },
 };
 
 const EDGES: DiagramEdge[] = [
@@ -167,7 +168,7 @@ export function CachingLab({ focus }: LabProps<'caching'>) {
   const { setup, setSetup, change } = useLabSetup(start);
   const { enabled, traffic, ttl, size, keyspace, skew, policy } = setup;
 
-  const [running, setRunning] = useState(true);
+  const [running, setRunning] = useLabRunning();
   const [inspected, setInspected] = useState<SimulatedRequest | null>(null);
 
   const state = useRef<State>(createState());
@@ -366,9 +367,17 @@ export function CachingLab({ focus }: LabProps<'caching'>) {
       title="Caching Lab"
       description="Watch two request paths: a hit that returns from memory, and a miss that pays for the database round trip - then stores the result, if Redis has room for it."
       running={running}
-      onToggleRun={() => setRunning((value) => !value)}
+      onRunningChange={setRunning}
       onReset={reset}
-      legend={<ParticleLegend outcomes={['cache-hit', 'success', 'warning']} />}
+      legend={
+        <ParticleLegend
+          outcomes={[
+            'cache-hit',
+            { outcome: 'success', label: 'Miss, read from the database' },
+            { outcome: 'warning', label: 'Miss, database overloaded' },
+          ]}
+        />
+      }
       events={events}
       insight={
         <Insight>
@@ -446,7 +455,7 @@ export function CachingLab({ focus }: LabProps<'caching'>) {
             ]}
           />
           <div className="card p-4">
-            <p className="label mb-3">Hit rate and database load</p>
+            <p className="label mb-3">Hit rate, database load and latency</p>
             <LiveChart
               data={points}
               series={[{ key: 'hitRate', label: 'Hit rate %', color: 'ok' }]}
@@ -455,12 +464,16 @@ export function CachingLab({ focus }: LabProps<'caching'>) {
             />
             <LiveChart
               data={points}
-              series={[
-                { key: 'dbQps', label: 'DB queries/sec', color: 'violet' },
-                { key: 'latency', label: 'Avg latency (ms)', color: 'warn' },
-              ]}
+              series={[{ key: 'dbQps', label: 'DB queries/sec', color: 'violet' }]}
               variant="line"
               height={150}
+            />
+            {/* Latency gets its own axis: next to thousands of queries a second, milliseconds lie flat on the floor. */}
+            <LiveChart
+              data={points}
+              series={[{ key: 'latency', label: 'Avg latency (ms)', color: 'brand' }]}
+              variant="line"
+              height={120}
             />
           </div>
         </>
@@ -557,7 +570,7 @@ export function CachingLab({ focus }: LabProps<'caching'>) {
         </>
       }
     >
-      <DiagramCanvas layout={LAYOUT} edges={EDGES} particles={particleViews} height={475} className="bg-canvas">
+      <DiagramCanvas layout={LAYOUT} edges={EDGES} particles={particleViews} height={492} className="bg-canvas">
         <ArchNode kind="client" title="Users" subtitle={`${formatNumber(traffic)} req/sec`} placed={LAYOUT.users} compact />
         <ArchNode kind="server" title="API" subtitle="cache-aside" placed={LAYOUT.api} compact>
           <NodeStatRow label="Avg" value={formatLatency(snapshot.avg)} />
@@ -568,10 +581,15 @@ export function CachingLab({ focus }: LabProps<'caching'>) {
           subtitle={enabled ? `TTL ${ttl}s - ${policy}` : 'disabled'}
           placed={LAYOUT.cache}
           status={enabled ? (policy === 'noeviction' && full ? 'degraded' : 'healthy') : 'down'}
+          statusLabel={enabled ? undefined : 'Off'}
         >
-          <Meter label="Memory" value={memoryUsed} tone="danger" size="xs" />
+          <Meter label="Memory" value={memoryUsed} size="xs" />
           <NodeStatRow label="Keys" value={`${formatNumber(current.entries.size)} / ${formatNumber(size)}`} />
-          <NodeStatRow label="Hit rate" value={formatPercent(hitRate)} tone="text-ok" />
+          <NodeStatRow
+            label="Hit rate"
+            value={formatPercent(hitRate)}
+            tone={hitRate > 0.8 ? 'text-ok' : hitRate > 0.5 ? 'text-warn' : 'text-danger'}
+          />
           <NodeStatRow
             label={policy === 'noeviction' ? 'SET refused' : 'Evicted'}
             value={formatNumber(policy === 'noeviction' ? current.rejected : current.evictions)}

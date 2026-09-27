@@ -156,8 +156,9 @@ export function MetricsView({ setup, chart, gateway, series }: MetricsViewProps)
           data={chart}
           series={[
             { key: 'avg', label: 'Average', color: 'info' },
-            { key: 'p50', label: 'p50', color: 'ok' },
-            { key: 'p99', label: 'p99', color: 'danger' },
+            // Series colours name the line only; green and red stay for status.
+            { key: 'p50', label: 'p50', color: 'brand' },
+            { key: 'p99', label: 'p99', color: 'violet' },
           ]}
           variant="line"
           height={170}
@@ -237,14 +238,14 @@ export function DashboardView({ setup, aggregates, expectedRate, probe, chart }:
   );
   return (
     <div className="space-y-4">
-      <div className="grid gap-2 sm:grid-cols-2">
-        <div className="rounded-lg border border-line bg-elevated p-3">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
           <p className="label">Inside (white box): errors, latency, saturation</p>
           <p className={cn('mt-1 text-sm font-semibold', whiteBoxBad ? 'text-danger' : 'text-ok')}>
             {whiteBoxBad ? 'Something is wrong' : 'All green'}
           </p>
         </div>
-        <div className="rounded-lg border border-line bg-elevated p-3">
+        <div>
           <p className="label">Outside (black box): synthetic probe</p>
           <p
             className={cn(
@@ -372,12 +373,12 @@ for:   ${forText}`}
       <div>
         <p className="label mb-2">Last 5 simulated minutes</p>
         <div className="space-y-1">
-          <div className="flex h-4 gap-px" aria-label="Alert state over time">
+          <div className="flex h-4 gap-px" role="img" aria-label="Alert state over time">
             {timeline.map((cell, index) => (
               <div key={index} className={cn('flex-1 rounded-sm', PHASE_CELL[cell.phase])} />
             ))}
           </div>
-          <div className="flex h-2 gap-px" aria-label="User pain over time">
+          <div className="flex h-2 gap-px" role="img" aria-label="User pain over time">
             {timeline.map((cell, index) => (
               <div key={index} className={cn('flex-1 rounded-sm', cell.hurt ? 'bg-danger/60' : 'bg-line')} />
             ))}
@@ -389,7 +390,7 @@ for:   ${forText}`}
         </p>
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-3 gap-4">
         <Counter label="Pages sent" value={formatNumber(alert.pages)} tone={alert.pages > 0 ? 'text-ink' : 'text-faint'} />
         <Counter
           label="Noisy pages"
@@ -415,7 +416,7 @@ for:   ${forText}`}
 
 function Counter({ label, value, tone, hint }: { label: string; value: string; tone: string; hint?: string }) {
   return (
-    <div className="rounded-lg border border-line bg-elevated p-2.5" title={hint}>
+    <div className="min-w-0" title={hint}>
       <p className="text-[11px] uppercase tracking-wide text-faint">{label}</p>
       <p className={cn('mt-0.5 font-mono text-sm font-semibold tabular-nums', tone)}>{value}</p>
       {hint ? <p className="mt-0.5 text-[11px] leading-snug text-faint">{hint}</p> : null}

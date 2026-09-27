@@ -5,11 +5,11 @@ type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'success' | 'outli
 type Size = 'sm' | 'md' | 'lg' | 'icon';
 
 const variants: Record<Variant, string> = {
-  primary: 'bg-brand text-white hover:bg-brand/90 shadow-sm',
+  primary: 'bg-brand text-on-fill hover:bg-brand/90 shadow-sm',
   secondary: 'bg-elevated text-ink border border-line hover:border-brand/50 hover:text-brand',
   ghost: 'text-muted hover:bg-elevated hover:text-ink',
-  danger: 'bg-danger text-white hover:bg-danger/90 shadow-sm',
-  success: 'bg-ok text-white hover:bg-ok/90 shadow-sm',
+  danger: 'bg-danger text-on-fill hover:bg-danger/90 shadow-sm',
+  success: 'bg-ok text-on-fill hover:bg-ok/90 shadow-sm',
   outline: 'border border-line text-ink hover:bg-elevated',
 };
 
@@ -34,7 +34,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       ref={ref}
       type={type}
       className={cn(
-        'inline-flex select-none items-center rounded-xl font-medium transition-colors duration-150',
+        'inline-flex select-none items-center rounded-xl font-medium transition-[color,background-color,border-color,transform] duration-150',
+        // A press sinks the button a little: the click was felt before anything else changes.
+        'active:scale-[0.97] disabled:active:scale-100',
         'disabled:cursor-not-allowed disabled:opacity-45',
         variants[variant],
         sizes[size],

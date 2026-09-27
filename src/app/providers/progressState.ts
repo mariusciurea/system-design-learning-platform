@@ -249,7 +249,11 @@ export function toggleDone(state: ProgressState, slug: string, now: number): Pro
   return change(state, slug, { ...record, done: !record.done, doneAt: now, changedAt: now });
 }
 
-const PASS_RATIO = 0.7;
+/** The share of a Quiz a Learner must get right for the Concept to become Done. */
+export const PASS_RATIO = 0.7;
+
+/** The fewest right answers that pass a Quiz of `total` questions (7 of 10). */
+export const passMark = (total: number) => Math.ceil(total * PASS_RATIO - 1e-9);
 
 /**
  * Keeps the best score. A pass makes the Concept Done, and records the time
@@ -260,7 +264,7 @@ export function recordQuiz(state: ProgressState, slug: string, correct: number, 
   const record = state.concepts[slug] ?? UNTOUCHED;
   const attempt: QuizResult = { correct, total, at: now };
   const quiz = bestQuiz(record.quiz, attempt) ?? attempt;
-  const passes = total > 0 && correct / total >= PASS_RATIO;
+  const passes = total > 0 && correct >= passMark(total);
   if (quiz === record.quiz && !passes) return state;
   return change(state, slug, {
     ...record,

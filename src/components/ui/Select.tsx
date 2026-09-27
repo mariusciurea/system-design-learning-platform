@@ -10,6 +10,8 @@ interface SelectProps<T extends string> {
   onChange: (value: T) => void;
   hint?: ReactNode;
   className?: string;
+  /** The name for a Select with no visible label. */
+  'aria-label'?: string;
 }
 
 export function Select<T extends string>({
@@ -19,6 +21,7 @@ export function Select<T extends string>({
   onChange,
   hint,
   className,
+  'aria-label': ariaLabel,
 }: SelectProps<T>) {
   const id = useId();
   return (
@@ -32,9 +35,11 @@ export function Select<T extends string>({
       <div className="relative">
         <select
           id={id}
+          aria-label={label ? undefined : ariaLabel}
           value={value}
           onChange={(event) => onChange(event.target.value as T)}
-          className="h-9 w-full appearance-none rounded-xl border border-line bg-elevated px-3 pr-9 text-sm text-ink transition-colors hover:border-brand/40"
+          // 16px on a touch screen, so iOS does not zoom in when it takes focus.
+          className="h-9 w-full appearance-none truncate rounded-xl border border-field bg-elevated px-3 pr-9 text-sm text-ink transition-colors hover:border-brand/40 disabled:cursor-not-allowed disabled:opacity-50 coarse:text-base"
         >
           {options.map((option) => (
             <option key={option.value} value={option.value}>

@@ -225,7 +225,8 @@ export const systemVisuals: Record<string, VisualSpec> = {
     caption: 'DNS, TCP and TLS all happen before your server does any work.',
     nodes: [
       { id: 'browser', kind: 'client', label: 'Browser', sub: 'https://example.com', x: 25, y: 30, w: 165, h: 80 },
-      { id: 'dns', kind: 'dns', label: 'DNS resolver', sub: 'name to IP address', x: 280, y: 30, w: 170, h: 80 },
+      // example.com points at the CDN, so the address the resolver hands back is an edge.
+      { id: 'dns', kind: 'dns', label: 'DNS resolver', sub: 'name to CDN edge IP', x: 280, y: 30, w: 190, h: 80 },
       { id: 'edge', kind: 'cdn', label: 'CDN edge', sub: 'ends TLS nearby', x: 30, y: 170, w: 150, h: 80 },
       { id: 'lb', kind: 'load-balancer', label: 'Load Balancer', x: 250, y: 170, w: 160, h: 80 },
       { id: 'api', kind: 'server', label: 'App server', x: 460, y: 170, w: 130, h: 80 },
@@ -233,7 +234,9 @@ export const systemVisuals: Record<string, VisualSpec> = {
       { id: 'db', kind: 'sql', label: 'Database', x: 620, y: 230, w: 120, h: 74 },
     ],
     edges: [
-      { from: 'browser', to: 'dns', tone: 'violet', rate: 1 },
+      // The address is cached for its TTL, so a lookup is far rarer than a request.
+      { from: 'browser', to: 'dns', tone: 'violet', rate: 0.25 },
+      // More goes in than is forwarded: static files are answered at the edge.
       { from: 'browser', to: 'edge', tone: 'brand', rate: 1.6 },
       { from: 'edge', to: 'lb', tone: 'brand', rate: 1 },
       { from: 'lb', to: 'api', tone: 'ok', rate: 1 },
@@ -242,17 +245,27 @@ export const systemVisuals: Record<string, VisualSpec> = {
       { from: 'api', to: 'cache', tone: 'ok', rate: 1, outcome: 'cache-hit' },
       { from: 'api', to: 'db', tone: 'muted', rate: 0.4, dashed: true },
     ],
+    // The same order as the Lab. The resolver already has the address, as on the
+    // Lab focus of this Concept, so its answer is a cache hit - the address of a
+    // CDN edge, which is why the handshakes that follow go to the edge. A miss is a plain
+    // dot, as in the Lab, where the triangle means plain HTTP readable on the
+    // path. Static files come last: the browser only finds them once the HTML
+    // has arrived and been parsed.
     steps: [
       { from: 'browser', to: 'dns', label: 'Resolve example.com to an IP' },
-      { from: 'dns', to: 'browser', label: 'Address back, cached for TTL' },
+      { from: 'dns', to: 'browser', label: 'Cached answer: the CDN edge IP', outcome: 'cache-hit' },
       { from: 'browser', to: 'edge', label: 'TCP and TLS handshakes at edge' },
-      { from: 'browser', to: 'edge', label: 'Static files served from edge', outcome: 'cache-hit' },
+      { from: 'browser', to: 'edge', label: 'GET /products/42 sent to edge' },
       { from: 'edge', to: 'lb', label: 'Page request forwarded to origin' },
       { from: 'lb', to: 'api', label: 'Load balancer picks a server' },
-      { from: 'api', to: 'cache', label: 'Cache miss for this page', outcome: 'warning' },
+      { from: 'api', to: 'cache', label: 'Cache miss for this page' },
       { from: 'api', to: 'db', label: 'Query the database, fill cache' },
       { from: 'api', to: 'lb', label: 'Response goes back the same way' },
-      { from: 'edge', to: 'browser', label: 'Browser parses, lays out, paints' },
+      { from: 'lb', to: 'edge', label: 'Back through the CDN edge' },
+      { from: 'edge', to: 'browser', label: 'HTML arrives at the browser' },
+      { from: 'browser', to: 'browser', label: 'Browser parses, lays out, paints' },
+      { from: 'browser', to: 'edge', label: 'Then asks for images and scripts' },
+      { from: 'edge', to: 'browser', label: 'Static files served from edge', outcome: 'cache-hit' },
     ],
   },
 

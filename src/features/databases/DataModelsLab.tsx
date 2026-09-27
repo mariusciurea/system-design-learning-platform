@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { useMemo, useRef, type ReactNode } from 'react';
 import { DatabaseZap } from 'lucide-react';
 import {
   ArchNode,
@@ -33,6 +33,7 @@ import {
   type View,
   type Workload,
 } from './dataModelsModel';
+import { useLabRunning } from '@/hooks/useLabRunning';
 
 const WORKLOADS: { value: Workload; label: string; blurb: string }[] = [
   { value: 'key', label: 'Key get/put at scale', blurb: 'Read or write one cart by its user id.' },
@@ -80,7 +81,7 @@ const TABLES = [
   { id: 'orders', title: 'orders' },
 ] as const;
 
-const CANVAS_HEIGHT = 440;
+const CANVAS_HEIGHT = 450;
 /** A migration plays in this many real seconds, whatever its simulated length. */
 const DEMO_SECONDS = 8;
 const partitionId = (index: number) => `p${index}`;
@@ -94,7 +95,7 @@ function buildLayout(view: View, partitions: number): Layout {
   const sqlShift = view === 'relational' ? 245 : 0;
   const docShift = view === 'document' ? -245 : 0;
   if (view !== 'document') {
-    layout.pg = { x: 135 + sqlShift, y: 150, w: 200, h: 106 };
+    layout.pg = { x: 135 + sqlShift, y: 150, w: 200, h: 116 };
     TABLES.forEach((table, index) => {
       layout[table.id] = { x: 25 + index * 150 + sqlShift, y: 320, w: 120, h: 74 };
     });
@@ -102,10 +103,10 @@ function buildLayout(view: View, partitions: number): Layout {
   if (view !== 'relational') {
     for (let index = 0; index < partitions; index += 1) {
       layout[partitionId(index)] = {
-        x: 500 + (index % 3) * 155 + docShift,
+        x: 496 + (index % 3) * 154 + docShift,
         y: 150 + Math.floor(index / 3) * 140,
-        w: 140,
-        h: 106,
+        w: 146,
+        h: 116,
       };
     }
   }
@@ -161,7 +162,7 @@ export function DataModelsLab({ focus }: LabProps<'data-models'>) {
   const { setup, setSetup, change } = useLabSetup(start);
   const { view, workload, keyOps, checkouts, sizeIndex, partitions, hotKey, crashRate, docTransactions, onlineMigration } =
     setup;
-  const [running, setRunning] = useState(true);
+  const [running, setRunning] = useLabRunning();
   const state = useRef<SimState>(createState());
   const rerender = useRerender(30);
   const { events, log, clear } = useEventLog();
@@ -193,7 +194,6 @@ export function DataModelsLab({ focus }: LabProps<'data-models'>) {
     setSetup(start);
     state.current = createState();
     clear();
-    setRunning(true);
   };
 
   const runMigration = () => {
@@ -412,7 +412,7 @@ export function DataModelsLab({ focus }: LabProps<'data-models'>) {
       title="Data Models Lab"
       description="The same shop data - carts, products, orders - in one relational database and in a partitioned document store. Run a workload and watch what each side makes cheap and what it makes expensive."
       running={running}
-      onToggleRun={() => setRunning((value) => !value)}
+      onRunningChange={setRunning}
       onReset={reset}
       legend={
         <div className="space-y-1.5">
@@ -445,7 +445,7 @@ export function DataModelsLab({ focus }: LabProps<'data-models'>) {
           </div>
           <div className="space-y-2">
             <p className="text-xs font-medium text-muted">Workload</p>
-            <div className="space-y-1.5">
+            <div role="group" aria-label="Workload" className="space-y-1.5">
               {WORKLOADS.map((item) => (
                 <button
                   key={item.value}
@@ -648,14 +648,14 @@ function GroupFrames({ view, partitions }: { view: View; partitions: number }) {
             x={frame.x}
             y={124}
             width={frame.x === 12 || frame.x === 257 ? 446 : 470}
-            height={300}
+            height={310}
             rx={14}
             fill="none"
             strokeDasharray="6 6"
             className="stroke-line"
             strokeWidth={1.5}
           />
-          <text x={frame.x + 12} y={417} className="fill-faint" style={{ fontSize: 11 }}>
+          <text x={frame.x + 12} y={427} className="fill-faint" style={{ fontSize: 11 }}>
             {frame.label}
           </text>
         </g>
@@ -667,13 +667,13 @@ function GroupFrames({ view, partitions }: { view: View; partitions: number }) {
 function legendNote(workload: Workload) {
   switch (workload) {
     case 'key':
-      return 'Each dot is one get or put. Warning: the machine is past 85% load and requests queue.';
+      return 'Each dot is one get or put. Triangle: the machine is past 85% load and requests queue.';
     case 'checkout':
       return 'Triangle: a checkout that failed half-way and was undone, so the customer retries. Cross: it failed half-way and the stock write stayed, or the machine was over capacity.';
     case 'report':
-      return 'Document side: dots coming back are orders shipped to the app; warnings are the product lookups your code adds.';
+      return 'Document side: dots coming back are orders shipped to the app; triangles are the product lookups your code adds.';
     default:
-      return 'Warning on the relational side: an order write waiting on the table lock.';
+      return 'Triangle on the relational side: an order write waiting on the table lock.';
   }
 }
 
@@ -765,7 +765,10 @@ function metricRows(setup: Setup, results: Results, sim: SimState): Row[] {
           label: 'Report time',
           hint: 'Time to produce revenue per category for the last 30 days.',
           sql: { value: formatSeconds(report.sqlSeconds), tone: report.sqlSeconds > 5 ? 'warn' : 'ok' },
-          doc: { value: formatSeconds(report.docSeconds), tone: report.docSeconds > 5 ? 'danger' : 'warn' },
+          doc: {
+            value: formatSeconds(report.docSeconds),
+            tone: report.docSeconds > 5 ? 'danger' : report.docSeconds > 1 ? 'warn' : 'ok',
+          },
         },
         {
           label: 'Rows sent to the app',

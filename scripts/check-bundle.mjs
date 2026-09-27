@@ -2,8 +2,9 @@
  * Size budget for the JavaScript every route downloads before it can render.
  *
  * That is the entry script in dist/index.html plus the chunks Vite modulepreloads
- * next to it - the shell (router, layout, sidebar, search, concept index). It
- * was 167 KB gzip before the lessons were split out of it; this keeps a later
+ * next to it - the shell (router, layout, sidebar, concept index). It was 167 KB
+ * gzip before the lessons were split out of it, and 119 KB before the search
+ * index moved into the Search dialog's own chunk (104 KB after); this keeps a later
  * static import of lesson data, a chart library or an icon namespace from
  * quietly putting it back. Runs after `vite build`, as part of `npm run build`.
  *
@@ -13,7 +14,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
-const BUDGET_KB = 125;
+const BUDGET_KB = 110;
 const DIST = 'dist';
 
 const html = readFileSync(join(DIST, 'index.html'), 'utf8');

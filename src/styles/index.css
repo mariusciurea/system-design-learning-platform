@@ -8,16 +8,47 @@
     --c-surface: 255 255 255;
     --c-elevated: 248 250 252;
     --c-line: 226 232 240;
+    /* A form field border. line is for separating surfaces and is too faint to show where to type;
+       field passes 3:1 (WCAG 1.4.11) on surface, canvas and elevated, in both themes. */
+    --c-field: 128 141 161;
     --c-ink: 15 23 42;
     --c-muted: 71 85 105;
-    --c-faint: 148 163 184;
-    --c-brand: 14 165 233;
-    --c-ok: 16 185 129;
-    --c-warn: 245 158 11;
-    --c-danger: 244 63 94;
-    --c-info: 99 102 241;
-    --c-violet: 168 85 247;
+    /* Every text color below passes 4.5:1 on surface, canvas and elevated, and the accents also
+       over their own 10% tint (a Badge), in both themes. faint is the quietest text, not a
+       decoration color. */
+    --c-faint: 96 112 135;
+    --c-brand: 3 105 161;
+    --c-ok: 4 120 87;
+    --c-warn: 172 78 10;
+    --c-danger: 200 24 64;
+    --c-info: 79 70 229;
+    --c-violet: 140 48 220;
+    /* Text and icons on a filled accent (a primary, danger or success Button). The light theme
+       fills are dark enough for white; the dark theme fills are bright, so they take dark text. */
+    --c-on-fill: 255 255 255;
     --grid: 226 232 240;
+
+    /* Category colors: wayfinding only, so the Learner can tell at a glance which Category a
+       Concept or Lab belongs to. They are a separate family from ok/warn/danger, which keep their
+       status meaning, and a colored Category chip keeps neutral text (only its icon takes the
+       color), so a green or amber Category never reads as a Difficulty badge. Made in OKLCH - light L 0.50 C 0.13, dark L 0.80 C 0.11, 13 hues about 28
+       degrees apart (h below), ordered so neighbours in the sidebar never look alike. Every value
+       passes 4.5:1 as text on surface, canvas and elevated, also over its own 10% tint.
+       A component reads one through --cat (see categoryStyle) as text-cat, bg-cat/10, border-cat/30. */
+    --cat-getting-started: 40 99 171; /* h 255 */
+    --cat-scaling: 122 75 154; /* h 310 */
+    --cat-networking: 42 117 45; /* h 144 */
+    --cat-data: 0 120 127; /* h 199 */
+    --cat-performance: 150 77 0; /* h 61 */
+    --cat-distributed: 89 87 170; /* h 282 */
+    --cat-communication: 0 122 91; /* h 172 */
+    --cat-async: 145 65 125; /* h 338 */
+    --cat-reliability: 0 111 156; /* h 227 */
+    --cat-security: 129 93 0; /* h 89 */
+    --cat-architecture: 160 65 46; /* h 33 */
+    --cat-observability: 96 107 0; /* h 116 */
+    --cat-patterns: 157 61 88; /* h 6 */
+    --cat: var(--c-brand);
   }
 
   .dark {
@@ -25,16 +56,32 @@
     --c-surface: 13 20 34;
     --c-elevated: 18 26 43;
     --c-line: 31 43 66;
+    --c-field: 92 106 132;
     --c-ink: 226 232 240;
     --c-muted: 148 163 184;
-    --c-faint: 100 116 139;
+    --c-faint: 122 137 160;
     --c-brand: 56 189 248;
     --c-ok: 52 211 153;
     --c-warn: 251 191 36;
     --c-danger: 251 113 133;
     --c-info: 129 140 248;
     --c-violet: 192 132 252;
+    --c-on-fill: 7 11 20;
     --grid: 30 41 59;
+
+    --cat-getting-started: 141 193 255;
+    --cat-scaling: 211 170 243;
+    --cat-networking: 146 208 144;
+    --cat-data: 86 211 216;
+    --cat-performance: 241 173 114;
+    --cat-distributed: 178 181 255;
+    --cat-communication: 106 213 182;
+    --cat-async: 236 162 214;
+    --cat-reliability: 103 204 245;
+    --cat-security: 218 186 102;
+    --cat-architecture: 252 163 144;
+    --cat-observability: 186 199 114;
+    --cat-patterns: 250 159 179;
   }
 
   html,
@@ -81,19 +128,146 @@
     }
   }
 
+  ::selection {
+    background-color: rgb(var(--c-brand) / 0.3);
+    color: rgb(var(--c-ink));
+  }
+  :where(input, textarea) {
+    caret-color: rgb(var(--c-brand));
+  }
+  :where(a) {
+    text-underline-offset: 3px;
+  }
+
+  /* Scrollbars take the theme: Firefox reads scrollbar-color, Chrome and Safari the
+     pseudo-elements. Chrome would drop the pseudo-elements for scrollbar-color, so that is set
+     only where they do not exist. The thumb is inset by a transparent border, so it reads as a
+     thin bar in a 10px gutter. */
+  @supports not selector(::-webkit-scrollbar) {
+    html {
+      scrollbar-color: rgb(var(--c-line)) transparent;
+    }
+  }
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
   }
   ::-webkit-scrollbar-thumb {
     @apply rounded-full bg-line;
+    border: 2px solid transparent;
+    background-clip: padding-box;
   }
-  ::-webkit-scrollbar-track {
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(var(--c-faint) / 0.6);
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
     background: transparent;
   }
 }
 
+@layer utilities {
+  /* A row that scrolls sideways with no visible bar (the Tabs row on a phone). */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 @layer components {
+  /* An ArchNode glides to a new placement and fades in when it is added, so adding a server
+     reads as the architecture changing. Placement changes are rare and touch a few boxes, so
+     transitioning left/top/width is cheaper than shipping a layout-animation library. */
+  .arch-node {
+    --ease-node: cubic-bezier(0.22, 1, 0.36, 1); /* ease-out-quint: stops smoothly, no overshoot */
+    transition-property: left, top, width, min-height, color, background-color, border-color, box-shadow, filter;
+    transition-duration: 450ms, 450ms, 450ms, 450ms, 200ms, 200ms, 200ms, 200ms, 200ms;
+    transition-timing-function: var(--ease-node), var(--ease-node), var(--ease-node), var(--ease-node),
+      cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1),
+      cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1);
+    animation: arch-node-in 450ms var(--ease-node) backwards;
+  }
+  @keyframes arch-node-in {
+    from {
+      opacity: 0;
+      transform: scale(0.85);
+    }
+  }
+
+  /* Motion explains a change; nothing here loops. One ease for arrivals, so every part
+     of the app settles the same way. */
+  :root {
+    --ease-arrive: cubic-bezier(0.16, 1, 0.3, 1); /* ease-out-expo: fast start, soft stop */
+  }
+
+  /* A metric crossed into another status (ok, warn, danger): its card rings once in the
+     new status color, so the Learner sees which number the control just moved. The
+     color comes from the text-<tone> class on the same element. */
+  .stat-flash {
+    opacity: 0;
+    box-shadow: inset 0 0 0 1.5px currentColor;
+    background-color: color-mix(in srgb, currentColor 12%, transparent);
+    animation: stat-flash 900ms var(--ease-arrive);
+  }
+  @keyframes stat-flash {
+    from {
+      opacity: 1;
+    }
+  }
+
+  /* A Walkthrough caption comes in from the side the story moves to. */
+  .step-in-next {
+    animation: step-in 260ms var(--ease-arrive) backwards;
+    --step-from: 10px;
+  }
+  .step-in-prev {
+    animation: step-in 260ms var(--ease-arrive) backwards;
+    --step-from: -10px;
+  }
+  @keyframes step-in {
+    from {
+      opacity: 0;
+      transform: translateX(var(--step-from));
+    }
+  }
+
+  /* The Quiz score counts up one right answer at a time towards the pass mark. */
+  .tally-in {
+    transform-origin: bottom;
+    animation: tally-in 320ms var(--ease-arrive) backwards;
+    animation-delay: calc(var(--i, 0) * 45ms);
+  }
+  @keyframes tally-in {
+    from {
+      opacity: 0;
+      transform: scaleY(0.2);
+    }
+  }
+  .tally-after {
+    animation: fade-up 280ms var(--ease-arrive) backwards;
+    animation-delay: calc(var(--i, 0) * 45ms + 120ms);
+  }
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+  }
+
+  /* The selected-tab underline slides from the old tab to the new one. It is a 1px bar
+     scaled to the tab width, so the slide is a transform and never a layout. */
+  .tab-bar {
+    width: 1px;
+    transform-origin: left;
+  }
+  .tab-bar[data-ready] {
+    transition:
+      transform 280ms var(--ease-arrive),
+      opacity 150ms ease-out;
+  }
+
   .card {
     @apply rounded-2xl border border-line bg-surface shadow-card;
   }
@@ -200,9 +374,10 @@
 }
 /* --------------------------- end Playground ------------------------------- */
 
-/* The OS "reduce motion" setting: CSS animations and transitions (dash, pulse,
-   fade-in, hover transitions) finish immediately. Self-running diagrams start
-   paused on their own, see useAutoplay in FlowVisual. */
+/* The OS "reduce motion" setting: nothing moves. Animations and transitions (dash,
+   pulse, slides, the node glide) finish immediately, and self-running diagrams start
+   paused on their own (useAutoplay in FlowVisual). A change that means something still
+   shows, as a short fade or color change with no movement: a class selector out-ranks `*`. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -211,5 +386,25 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+  .animate-fade-in,
+  .arch-node,
+  .step-in-next,
+  .step-in-prev,
+  .tally-in,
+  .tally-after {
+    animation-name: fade-only !important;
+    animation-duration: 180ms !important;
+  }
+  .stat-flash {
+    animation-duration: 900ms !important;
+  }
+  .transition-colors {
+    transition-duration: 150ms !important;
+  }
+}
+@keyframes fade-only {
+  from {
+    opacity: 0;
   }
 }

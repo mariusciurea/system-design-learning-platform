@@ -1,13 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { cn } from '@/utils/cn';
 import { ErrorBoundary } from '@/components/ui';
 import { useLayout } from '@/app/providers/LayoutProvider';
 import { LG_QUERY, useMediaQuery } from '@/hooks/useMediaQuery';
+import { useRouteAnnouncer } from '@/hooks/useRouteAnnouncer';
 import type { Difficulty } from '@/types';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { CommandSearch } from './CommandSearch';
+
+/** The id of the sidebar column, named by the menu button's aria-controls. */
+const NAV_ID = 'app-navigation';
 
 /** True while focus is somewhere "/" is a character, not a shortcut. */
 const isTyping = (element: Element | null) =>
@@ -24,18 +28,23 @@ export function AppShell() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [difficulty, setDifficulty] = useState<Difficulty | 'all'>('all');
   const location = useLocation();
+  const mainRef = useRef<HTMLElement>(null);
   const { sidebarFolded, setFolded } = useLayout();
   const isWide = useMediaQuery(LG_QUERY);
   // A stored fold only applies to the static column; the small-screen drawer always shows everything.
   const folded = isWide && sidebarFolded;
+  const announcement = useRouteAnnouncer(location.pathname, mainRef);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      // An open dialog (sign-in, delete, search itself) owns the keyboard: Search would open
+      // under it and take focus, so the Learner would type into a field they cannot see.
+      const dialogOpen = document.querySelector('[aria-modal="true"]') !== null;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
-        setSearchOpen(true);
+        if (!dialogOpen) setSearchOpen(true);
       }
-      if (event.key === '/' && !isTyping(document.activeElement)) {
+      if (event.key === '/' && !dialogOpen && !isTyping(document.activeElement)) {
         event.preventDefault();
         setSearchOpen(true);
       }
@@ -43,6 +52,18 @@ export function AppShell() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    // Escape closes the drawer, as it closes a dialog, and focus goes back to the button that opened it.
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || document.querySelector('[aria-modal="true"]')) return;
+      setMobileNavOpen(false);
+      document.querySelector<HTMLElement>(`[aria-controls="${NAV_ID}"]`)?.focus();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [mobileNavOpen]);
 
   useEffect(() => {
     // Any navigation closes the mobile drawer, including back/forward, which
@@ -54,8 +75,21 @@ export function AppShell() {
 
   return (
     <div className="flex h-full flex-col bg-canvas">
+      {/* The first Tab stop: it jumps past the top bar and the long sidebar list to the page itself. */}
+      <a
+        href="#main"
+        onClick={(event) => {
+          event.preventDefault();
+          mainRef.current?.focus();
+        }}
+        className="sr-only z-50 rounded-xl bg-brand px-4 py-2 text-sm font-medium text-on-fill focus:not-sr-only focus:fixed focus:left-3 focus:top-2"
+      >
+        Skip to content
+      </a>
+
       <TopBar
         onOpenSearch={() => setSearchOpen(true)}
+        navId={NAV_ID}
         onToggleSidebar={() => (isWide ? setFolded('sidebarFolded', !sidebarFolded) : setMobileNavOpen((open) => !open))}
         sidebarExpanded={isWide ? !sidebarFolded : mobileNavOpen}
         difficulty={difficulty}
@@ -64,11 +98,14 @@ export function AppShell() {
 
       <div className="flex min-h-0 flex-1">
         <aside
+          id={NAV_ID}
           className={cn(
             'w-72 shrink-0 overflow-hidden border-r border-line bg-surface',
-            'fixed inset-y-14 left-0 z-40 transition-[transform,width] duration-150 lg:static lg:inset-auto lg:translate-x-0',
+            // The drawer runs from under the top bar to the bottom of the screen.
+            'fixed bottom-0 left-0 top-14 z-40 transition-[transform,width,visibility] duration-150 lg:static lg:inset-auto lg:translate-x-0',
             folded && 'lg:w-14',
-            mobileNavOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full',
+            // A closed drawer is hidden as well as moved away, so Tab does not walk through links no one can see.
+            mobileNavOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full max-lg:invisible',
           )}
         >
           <Sidebar
@@ -87,15 +124,24 @@ export function AppShell() {
           />
         ) : null}
 
-        <main className="min-w-0 flex-1 overflow-y-auto">
+        <main
+          ref={mainRef}
+          id="main"
+          tabIndex={-1}
+          className="min-w-0 flex-1 overflow-y-auto outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
+        >
           {/* Keyed by path so that one crashed page does not keep every other route showing its error. */}
-          <ErrorBoundary area="Workspace" key={location.pathname}>
+          <ErrorBoundary area="This page" key={location.pathname}>
             <Outlet />
           </ErrorBoundary>
         </main>
       </div>
 
       <CommandSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
+      {/* Names the new page after an in-app navigation, as a full page load would. */}
+      <p aria-live="polite" aria-atomic="true" className="sr-only">
+        {announcement}
+      </p>
     </div>
   );
 }

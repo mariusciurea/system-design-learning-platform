@@ -13,8 +13,13 @@ export function ScenarioPage() {
     return (
       <div className="mx-auto max-w-2xl px-5 py-16 text-center">
         <h1 className="text-xl font-semibold text-ink">Scenario not found</h1>
-        <Link to="/scenarios" className="mt-4 inline-block text-sm text-brand hover:underline">
-          All scenarios
+        <p className="mt-2 text-sm text-muted">This scenario does not exist.</p>
+        <Link
+          to="/scenarios"
+          className="mt-6 inline-flex h-10 items-center gap-2 rounded-xl border border-line px-4 text-sm font-medium text-ink transition-colors hover:border-brand hover:text-brand"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to all scenarios
         </Link>
       </div>
     );
@@ -106,17 +111,17 @@ export function ScenarioPage() {
             </p>
           </ExplanationCard>
           <ExplanationCard title="API design">
-            <div className="mt-2 space-y-1.5">
+            <ul className="mt-1 divide-y divide-line">
               {scenario.api.map((endpoint) => (
-                <div key={`${endpoint.method}-${endpoint.path}`} className="rounded-lg border border-line bg-elevated px-3 py-2">
-                  <p className="font-mono text-xs">
+                <li key={`${endpoint.method}-${endpoint.path}`} className="py-2.5 last:pb-0">
+                  <p className="break-words font-mono text-xs">
                     <span className="font-semibold text-brand">{endpoint.method}</span>{' '}
                     <span className="text-ink">{endpoint.path}</span>
                   </p>
                   <p className="mt-0.5 text-xs text-muted">{endpoint.note}</p>
-                </div>
+                </li>
               ))}
-            </div>
+            </ul>
           </ExplanationCard>
         </div>
       ),
@@ -138,14 +143,14 @@ export function ScenarioPage() {
         <div className="space-y-4">
           <ExplanationCard title="Reliability measures" items={scenario.reliability} marker="check" tone="ok" />
           <ExplanationCard title="Bottlenecks and fixes">
-            <div className="mt-2 space-y-2">
+            <ul className="mt-1 divide-y divide-line">
               {scenario.bottlenecks.map((item) => (
-                <div key={item.problem} className="rounded-xl border border-line p-3">
+                <li key={item.problem} className="py-2.5 last:pb-0">
                   <p className="text-sm text-ink">{item.problem}</p>
                   <p className="mt-1 text-xs text-ok">-&gt; {item.solution}</p>
-                </div>
+                </li>
               ))}
-            </div>
+            </ul>
           </ExplanationCard>
         </div>
       ),

@@ -23,6 +23,8 @@ _Avoid_: Deep dive, article
 
 **Diagram**:
 The running picture of one Concept: its parts and the traffic that flows between them. The first thing a Concept shows.
+It may be shorter than the Lab of its Concept, but it never contradicts it: the same Example product, the same parts
+under the same names, the same order of steps, and the same shape for the same outcome.
 _Avoid_: Visual, flow, animation
 
 **Walkthrough**:
@@ -39,7 +41,16 @@ _Avoid_: Demo, exercise, widget
 **Lab focus**:
 The starting setup a shared Lab opens with on one Concept, so it shows that Concept's lesson first.
 Retry and Exponential backoff share a Lab; each opens it with a different focus.
+A Lab focus opens on the controls of its own Concept, so the first change the learner makes teaches that Concept.
+Two Concepts whose focuses start almost the same is a defect, not a shortcut.
 _Avoid_: Preset, mode, scenario
+
+**Example product**:
+The real product a Concept uses as its worked example, such as WhatsApp, Instagram or Uber. A Concept's Diagram and
+its Lab focus use the same one, so the Lab reads as the Diagram made adjustable, and its Lesson's worked example
+uses it too. Its Quiz may use other products, to check the idea carries over. Only a Concept whose Lab offers a
+choice of products has one; the others keep a general example such as example.com.
+_Avoid_: Scenario (that is a Tool), preset, case study
 
 **Trade-offs**:
 What each approach to a Concept gains and what it costs. Never "X is better than Y".

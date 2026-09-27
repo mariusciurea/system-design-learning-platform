@@ -14,6 +14,7 @@ import { advanceParticles, nextParticleId, useEventLog, useTicker, type Particle
 import { useRerender } from '@/hooks/useRerender';
 import { cn } from '@/utils/cn';
 import type { RequestOutcome } from '@/types';
+import { useLabRunning } from '@/hooks/useLabRunning';
 
 /**
  * Web application firewall: real users and attackers send requests to the same
@@ -226,7 +227,7 @@ export function WafLab() {
     <K extends keyof Setup>(key: K) =>
     (value: Setup[K]) =>
       setSetup((current) => ({ ...current, [key]: value }));
-  const [running, setRunning] = useState(true);
+  const [running, setRunning] = useLabRunning();
   const sim = useRef<SimState>(createState());
   const rerender = useRerender(30);
   const { events, log, clear } = useEventLog();
@@ -385,7 +386,7 @@ export function WafLab() {
       title="WAF Lab"
       description="Real users and attackers reach the same firewall, which sees only the request. Change the rule strictness and the mode, and watch attacks blocked, attacks missed and real users blocked."
       running={running}
-      onToggleRun={() => setRunning((value) => !value)}
+      onRunningChange={setRunning}
       onReset={reset}
       legend={<WafLegend />}
       events={events}
@@ -480,7 +481,7 @@ export function WafLab() {
                     const attack = KIND_INFO[kind].attack;
                     return (
                       <tr key={kind}>
-                        <td className={cn('py-0.5', attack ? 'text-danger' : 'text-ink')}>{KIND_INFO[kind].label}</td>
+                        <td className="py-0.5 text-ink">{KIND_INFO[kind].label}</td>
                         <td className="py-0.5 text-right">{pct(typeChance(kind, setup))}</td>
                         <td className="py-0.5 text-right">{byKind[kind].sent}</td>
                         <td className={cn('py-0.5 text-right', attack && byKind[kind].reachedApp > 0 && 'text-warn')}>
@@ -594,7 +595,11 @@ export function WafLab() {
                   key={kind}
                   size="sm"
                   variant={KIND_INFO[kind].attack ? 'outline' : 'secondary'}
-                  onClick={() => send(kind, true)}
+                  onClick={() => {
+                    send(kind, true);
+                    // A paused Lab would hold the request at the start of its wire, so the click would look lost.
+                    setRunning(true);
+                  }}
                 >
                   {KIND_INFO[kind].label}
                 </Button>

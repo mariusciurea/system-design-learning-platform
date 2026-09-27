@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef } from 'react';
 import { Pause, Power, RotateCw } from 'lucide-react';
 import {
   ArchNode,
@@ -12,8 +12,10 @@ import {
 import { Insight, LabShell, MetricsPanel } from '@/components/learning';
 import { Button, SegmentedControl, Slider, Toggle } from '@/components/ui';
 import { nextParticleId, useEventLog, useTicker } from '@/simulations/engine';
+import { useLabSetup } from '@/hooks/useLabSetup';
 import { useRerender } from '@/hooks/useRerender';
 import type { NodeStatus, RequestOutcome } from '@/types';
+import { useLabRunning } from '@/hooks/useLabRunning';
 
 /*
  * Simplified model, not a measurement. Time is simulated seconds: the clock runs
@@ -158,13 +160,14 @@ const OUTCOME: Record<MessageKind, RequestOutcome> = {
  */
 const CANVAS_H = 540;
 const WORKER_W = 230;
-const WORKER_H = 150;
+const WORKER_H = 154;
 const WORKER_Y: Record<WorkerCount, number[]> = { 2: [80, 310], 3: [20, 195, 370] };
 
 const buildLayout = (count: WorkerCount): Layout => {
   const layout: Layout = {
-    lock: { x: 20, y: 205, w: 220, h: 130 },
-    store: { x: 720, y: 205, w: 220, h: 130 },
+    // Tall enough for three stat rows; the storage is wide enough for "refuses a token older than seen".
+    lock: { x: 20, y: 193, w: 220, h: 154 },
+    store: { x: 715, y: 193, w: 230, h: 154 },
   };
   WORKER_Y[count].forEach((y, index) => {
     layout[ALL_WORKERS[index]] = { x: 365, y, w: WORKER_W, h: WORKER_H };
@@ -175,17 +178,13 @@ const buildLayout = (count: WorkerCount): Layout => {
 const LAYOUTS: Record<WorkerCount, Layout> = { 2: buildLayout(2), 3: buildLayout(3) };
 
 export function DistributedLockLab() {
-  const [running, setRunning] = useState(true);
-  const [setup, setSetup] = useState(DEFAULT_SETUP);
+  const [running, setRunning] = useLabRunning();
+  // Every control lives in one object, so Reset cannot miss one.
+  const { setup, setSetup, change } = useLabSetup(DEFAULT_SETUP);
   const { workerCount, fencing, ttlOn, ttlS, pauseS, checkRelease } = setup;
   const sim = useRef<Sim>(createSim(DEFAULT_SETUP.workerCount));
   const rerender = useRerender(30);
   const { events, log, clear } = useEventLog(40);
-
-  const change =
-    <K extends keyof Setup>(key: K) =>
-    (value: Setup[K]) =>
-      setSetup((current) => ({ ...current, [key]: value }));
 
   const send = (from: NodeId, to: NodeId, kind: MessageKind, worker: WorkerId, token: number) => {
     sim.current.messages.push({ id: nextParticleId(), from, to, t: 0, kind, worker, token });
@@ -401,7 +400,7 @@ export function DistributedLockLab() {
     sim.current = createSim(DEFAULT_SETUP.workerCount);
     setSetup(DEFAULT_SETUP);
     clear();
-  }, [clear]);
+  }, [clear, setSetup]);
 
   const changeWorkerCount = (next: WorkerCount) => {
     if (next === workerCount) return;
@@ -571,14 +570,17 @@ export function DistributedLockLab() {
       title="Distributed Lock Lab"
       description="Two or three workers share one resource through a lock service with a TTL. Freeze the holder past its lease, see two owners at once, then turn on fencing tokens."
       running={running}
-      onToggleRun={() => setRunning((value) => !value)}
+      onRunningChange={setRunning}
       onReset={reset}
       events={events}
       legend={
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
-          <ParticleLegend outcomes={['success', 'warning', 'failure']} />
-          <span className="text-[11px] text-faint">Triangle: lock busy, try again. Cross: stale write refused.</span>
-        </div>
+        <ParticleLegend
+          outcomes={[
+            'success',
+            { outcome: 'warning', label: 'Lock busy, try again' },
+            { outcome: 'failure', label: 'Stale write refused' },
+          ]}
+        />
       }
       actions={
         <Button variant="primary" onClick={() => pauseWorker('w1')} disabled={s.workers.w1.phase === 'crashed' || s.workers.w1.pauseLeft > 0}>

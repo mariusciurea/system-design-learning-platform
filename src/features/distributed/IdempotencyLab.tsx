@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
 import { CreditCard, MousePointerClick } from 'lucide-react';
 import {
   ArchNode,
@@ -12,9 +12,11 @@ import {
 import { Insight, LabShell, MetricsPanel, SIMULATED_HINT } from '@/components/learning';
 import { Button, SegmentedControl, Slider, Toggle } from '@/components/ui';
 import { advanceParticles, nextParticleId, useEventLog, useTicker, type Particle } from '@/simulations/engine';
+import { useLabSetup } from '@/hooks/useLabSetup';
 import { useRerender } from '@/hooks/useRerender';
 import { cn } from '@/utils/cn';
 import type { RequestOutcome } from '@/types';
+import { useLabRunning } from '@/hooks/useLabRunning';
 
 /**
  * Idempotency: a client pays over a network that loses responses. The first
@@ -57,7 +59,8 @@ const PRICE = 20;
 
 const LAYOUT: Layout = {
   client: { x: 30, y: 165, w: 210, h: 124 },
-  api: { x: 345, y: 160, w: 230, h: 134 },
+  // Three stat rows need about 142px.
+  api: { x: 345, y: 156, w: 230, h: 142 },
   keys: { x: 690, y: 55, w: 240, h: 124 },
   charges: { x: 690, y: 270, w: 240, h: 124 },
 };
@@ -153,13 +156,10 @@ const keyFor = (mode: KeyMode, intent: number, attempt: number) =>
   mode === 'none' ? null : mode === 'per-intent' ? `pay-${intent}` : `pay-${intent}.${attempt}`;
 
 export function IdempotencyLab() {
-  const [setup, setSetup] = useState(DEFAULT_SETUP);
+  // Every control lives in one object, so Reset cannot miss one.
+  const { setup, setSetup, change } = useLabSetup(DEFAULT_SETUP);
   const { keyMode, responseLoss, maxAttempts, autoPay } = setup;
-  const change =
-    <K extends keyof Setup>(key: K) =>
-    (value: Setup[K]) =>
-      setSetup((current) => ({ ...current, [key]: value }));
-  const [running, setRunning] = useState(true);
+  const [running, setRunning] = useLabRunning();
   const sim = useRef<SimState>(createState());
   const rerender = useRerender(30);
   const { events, log, clear } = useEventLog();
@@ -382,9 +382,18 @@ export function IdempotencyLab() {
       title="Idempotency Lab"
       description="Pay over a network that loses responses. Retry without a key and watch a double charge; send the same key on every retry and watch the retry answered from the keys table."
       running={running}
-      onToggleRun={() => setRunning((value) => !value)}
+      onRunningChange={setRunning}
       onReset={reset}
-      legend={<ParticleLegend outcomes={['success', 'warning', 'cache-hit', 'failure']} />}
+      legend={
+        <ParticleLegend
+          outcomes={[
+            'success',
+            { outcome: 'warning', label: 'Retry, or 409 in progress' },
+            { outcome: 'cache-hit', label: 'Stored result replayed' },
+            { outcome: 'failure', label: 'Response lost' },
+          ]}
+        />
+      }
       events={events}
       actions={
         <>

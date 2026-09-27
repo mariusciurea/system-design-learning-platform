@@ -1,8 +1,9 @@
 import { Suspense } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, BookOpen, Loader2 } from 'lucide-react';
-import { Badge, Button, difficultyTone, ErrorBoundary } from '@/components/ui';
+import { Badge, difficultyTone, ErrorBoundary } from '@/components/ui';
 import { CATEGORY_BY_ID } from '@/data/categories';
+import { CategoryTag } from '@/data/categoryIcons';
 import { CONCEPT_BY_SLUG } from '@/data/concepts';
 import { getLab } from './registry';
 
@@ -33,26 +34,27 @@ export function LabRoute() {
   return (
     <div className="px-5 py-6 lg:px-8">
       <div className="mx-auto max-w-[1600px]">
+        {/* The lab shows its own title and description right below, so the page
+            heading is for screen readers only and this row stays a toolbar. */}
+        <h1 className="sr-only">{lab.title}</h1>
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <Link to="/labs" className="flex items-center gap-1.5 text-xs text-faint transition-colors hover:text-brand">
-              <ArrowLeft className="h-3.5 w-3.5" />
-              All labs
-            </Link>
-            <h1 className="mt-1 text-xl font-semibold text-ink">{lab.title}</h1>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <Badge tone={difficultyTone(lab.difficulty)}>{lab.difficulty}</Badge>
-              <Badge>{category.title}</Badge>
-            </div>
-          </div>
-          {concept ? (
-            <Link to={`/concepts/${concept.slug}`}>
-              <Button variant="secondary">
+          <Link to="/labs" className="flex items-center gap-1.5 text-xs text-faint transition-colors hover:text-brand">
+            <ArrowLeft className="h-3.5 w-3.5" />
+            All labs
+          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone={difficultyTone(lab.difficulty)}>{lab.difficulty}</Badge>
+            <CategoryTag category={category} variant="chip" />
+            {concept ? (
+              <Link
+                to={`/concepts/${concept.slug}`}
+                className="inline-flex h-10 items-center gap-2 rounded-xl border border-line bg-elevated px-4 text-sm font-medium text-ink transition-colors hover:border-brand/50 hover:text-brand"
+              >
                 <BookOpen className="h-4 w-4" />
                 Read the concept
-              </Button>
-            </Link>
-          ) : null}
+              </Link>
+            ) : null}
+          </div>
         </div>
 
         <ErrorBoundary area={lab.title}>

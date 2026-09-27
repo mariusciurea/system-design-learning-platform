@@ -1,7 +1,7 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef } from 'react';
 import { ShieldAlert, ShieldCheck } from 'lucide-react';
 import { ArchNode, DiagramCanvas, NodeStatRow, ParticleLegend, type DiagramEdge, type Layout, type ParticleView } from '@/components/architecture';
-import { Insight, LabShell, MetricsPanel } from '@/components/learning';
+import { Insight, LabShell, MetricsPanel, SIMULATED_HINT } from '@/components/learning';
 import { Badge, Button, Meter, Slider, Toggle } from '@/components/ui';
 import {
   advanceParticles,
@@ -11,10 +11,12 @@ import {
   useTicker,
   type Particle,
 } from '@/simulations/engine';
+import { useLabSetup } from '@/hooks/useLabSetup';
 import { useRerender } from '@/hooks/useRerender';
 import { sampleArrivals } from '@/utils/math';
 import { LATENCY_TEXT, formatLatency, formatNumber, formatPercent, latencyTone } from '@/utils/format';
 import { cn } from '@/utils/cn';
+import { useLabRunning } from '@/hooks/useLabRunning';
 
 type BreakerState = 'closed' | 'open' | 'half-open';
 
@@ -102,34 +104,61 @@ const createState = (): State => ({
   trialCalls: new Map(),
 });
 
+/**
+ * The right column is 195 wide, so "cached / default response" fits under Fallback, and
+ * sits 70px from the breaker, so the "blocked" and "fallback" edge labels land between
+ * the boxes instead of behind them.
+ */
 const LAYOUT: Layout = {
-  client: { x: 40, y: 200, w: 160, h: 84 },
-  api: { x: 265, y: 190, w: 180, h: 104 },
-  breaker: { x: 470, y: 180, w: 250, h: 124 },
-  payment: { x: 745, y: 100, w: 175, h: 108 },
-  fallback: { x: 745, y: 300, w: 175, h: 96 },
+  client: { x: 20, y: 200, w: 160, h: 84 },
+  api: { x: 220, y: 190, w: 180, h: 104 },
+  breaker: { x: 435, y: 173, w: 250, h: 138 },
+  payment: { x: 755, y: 90, w: 195, h: 128 },
+  fallback: { x: 755, y: 300, w: 195, h: 96 },
 };
 
 const WINDOW_SIZE = 20;
 const TRIAL_CALLS = 3;
 
+interface Setup {
+  /** Share of calls the payment service fails, 0..1. */
+  failureRate: number;
+  /** Failure ratio over the window, in percent, that opens the circuit. */
+  threshold: number;
+  /** Seconds the circuit stays open before it probes. */
+  cooldown: number;
+  /** Milliseconds a failing call costs when nothing short-circuits it. */
+  timeout: number;
+  breakerEnabled: boolean;
+  /** Calls per second from the client. */
+  requestRate: number;
+}
+
+/** What the Lab opens on, and what Reset goes back to. */
+const DEFAULT_SETUP: Setup = {
+  failureRate: 0.1,
+  threshold: 50,
+  cooldown: 6,
+  timeout: 2000,
+  breakerEnabled: true,
+  requestRate: 10,
+};
+
 export function CircuitBreakerLab() {
-  const [running, setRunning] = useState(true);
-  const [failureRate, setFailureRate] = useState(0.1);
-  const [threshold, setThreshold] = useState(50);
-  const [cooldown, setCooldown] = useState(6);
-  const [timeout, setTimeoutMs] = useState(2000);
-  const [breakerEnabled, setBreakerEnabled] = useState(true);
-  const [requestRate, setRequestRate] = useState(10);
+  // Every control lives in one object, so Reset cannot miss one.
+  const { setup, setSetup, change } = useLabSetup(DEFAULT_SETUP);
+  const { failureRate, threshold, cooldown, timeout, breakerEnabled, requestRate } = setup;
+  const [running, setRunning] = useLabRunning();
 
   const state = useRef<State>(createState());
   const rerender = useRerender(30);
   const { events, log, clear } = useEventLog(50);
 
   const reset = useCallback(() => {
+    setSetup(DEFAULT_SETUP);
     state.current = createState();
     clear();
-  }, [clear]);
+  }, [clear, setSetup]);
 
   const transition = useCallback(
     (next: BreakerState, reason: string) => {
@@ -313,16 +342,24 @@ export function CircuitBreakerLab() {
       title="Circuit Breaker Lab"
       description="Raise the downstream failure rate and watch the breaker trip, cool down, probe with trial calls, and either close or reopen."
       running={running}
-      onToggleRun={() => setRunning((value) => !value)}
+      onRunningChange={setRunning}
       onReset={reset}
-      legend={<ParticleLegend outcomes={['success', 'failure', 'warning']} />}
+      legend={
+        <ParticleLegend
+          outcomes={[
+            { outcome: 'success', label: 'Successful call' },
+            { outcome: 'failure', label: 'Failed call' },
+            { outcome: 'warning', label: 'Short-circuited to the fallback' },
+          ]}
+        />
+      }
       events={events}
       actions={
         <>
           <Button
             variant="danger"
             onClick={() => {
-              setFailureRate(0.9);
+              change('failureRate')(0.9);
               log('Injected an outage in the payment service (90% failures)', 'danger');
             }}
           >
@@ -332,7 +369,7 @@ export function CircuitBreakerLab() {
           <Button
             variant="success"
             onClick={() => {
-              setFailureRate(0.02);
+              change('failureRate')(0.02);
               log('Payment service recovered (2% failures)', 'ok');
             }}
           >
@@ -437,7 +474,7 @@ export function CircuitBreakerLab() {
             label="Circuit breaker"
             checked={breakerEnabled}
             onChange={(value) => {
-              setBreakerEnabled(value);
+              change('breakerEnabled')(value);
               if (!value) {
                 // A disabled breaker has no state. Without this an OPEN breaker kept
                 // its cooldown running in the background and came back OPEN.
@@ -453,7 +490,7 @@ export function CircuitBreakerLab() {
                 'info',
               );
             }}
-            description="Off: every call waits for the timeout before failing"
+            description="Off: every failing call waits for the timeout"
           />
           <Slider
             label="Downstream failure rate"
@@ -461,7 +498,7 @@ export function CircuitBreakerLab() {
             min={0}
             max={1}
             step={0.01}
-            onChange={setFailureRate}
+            onChange={change('failureRate')}
             format={(value) => formatPercent(value)}
             tone={failureRate > 0.5 ? 'danger' : 'warn'}
             hint="How often the payment service currently fails."
@@ -472,7 +509,7 @@ export function CircuitBreakerLab() {
             min={10}
             max={90}
             step={5}
-            onChange={setThreshold}
+            onChange={change('threshold')}
             format={(value) => `${value}% failures`}
             hint="Failure ratio over the last 20 calls that opens the circuit."
           />
@@ -481,7 +518,7 @@ export function CircuitBreakerLab() {
             value={cooldown}
             min={1}
             max={30}
-            onChange={setCooldown}
+            onChange={change('cooldown')}
             format={(value) => `${value} s`}
             hint="How long the circuit stays open before probing."
           />
@@ -491,7 +528,7 @@ export function CircuitBreakerLab() {
             min={200}
             max={10000}
             step={100}
-            onChange={setTimeoutMs}
+            onChange={change('timeout')}
             format={(value) => formatLatency(value)}
             hint="What a failing call costs when the breaker is not protecting you."
           />
@@ -500,10 +537,10 @@ export function CircuitBreakerLab() {
             value={requestRate}
             min={1}
             max={60}
-            onChange={setRequestRate}
+            onChange={change('requestRate')}
             format={(value) => `${value} req/sec`}
           />
-          <div className="rounded-xl border border-line bg-elevated p-3">
+          <div className="border-t border-line pt-4">
             <p className="label mb-2">Rolling window</p>
             <Meter
               value={windowRatio}
@@ -553,11 +590,18 @@ export function CircuitBreakerLab() {
       </DiagramCanvas>
       <p className="px-4 pb-3 pt-1 text-[11px] text-faint">
         Total calls: {formatNumber(total)} - a breaker without a meaningful fallback only moves the error, it does not
-        remove it.
+        remove it. {SIMULATED_HINT}
       </p>
     </LabShell>
   );
 }
+
+/** The words for a call result, as the legend under the strip spells them. */
+const CALL_NAME: Record<CallRecord['result'], string> = {
+  ok: 'success',
+  fail: 'failure',
+  'short-circuit': 'short-circuited',
+};
 
 /**
  * One call in the recent-calls strip. The shapes match the particle legend
@@ -570,10 +614,10 @@ function CallGlyph({ result }: { result: CallRecord['result'] }) {
       height={12}
       viewBox="-6 -6 12 12"
       role="img"
-      aria-label={result}
+      aria-label={CALL_NAME[result]}
       className={cn(result === 'ok' ? 'text-ok' : result === 'fail' ? 'text-danger' : 'text-warn')}
     >
-      <title>{result}</title>
+      <title>{CALL_NAME[result]}</title>
       {result === 'ok' ? (
         <circle r={4.5} fill="currentColor" />
       ) : result === 'fail' ? (

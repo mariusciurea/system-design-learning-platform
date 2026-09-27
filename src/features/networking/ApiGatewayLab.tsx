@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { KeyRound, Send } from 'lucide-react';
+import { Send } from 'lucide-react';
 import { ArchNode, DiagramCanvas, NodeStatRow, type DiagramEdge, type Layout, type ParticleView } from '@/components/architecture';
 import { Insight, LabShell, MetricsPanel } from '@/components/learning';
 import { Badge, Button, Select, Toggle } from '@/components/ui';
@@ -33,7 +33,7 @@ interface Stage {
 
 const LAYOUT: Layout = {
   client: { x: 40, y: 200, w: 160, h: 82 },
-  gateway: { x: 300, y: 160, w: 230, h: 170 },
+  gateway: { x: 300, y: 147, w: 230, h: 196 },
   users: { x: 660, y: 60, w: 200, h: 96 },
   orders: { x: 660, y: 195, w: 200, h: 96 },
   payments: { x: 660, y: 330, w: 200, h: 96 },
@@ -175,19 +175,23 @@ export function ApiGatewayLab() {
         setStageIndex(-1);
       }}
       actions={
-        <>
-          <Button variant={validToken ? 'secondary' : 'danger'} onClick={() => changed(setValidToken)(!validToken)}>
-            <KeyRound className="h-4 w-4" />
-            {validToken ? 'Valid JWT' : 'Invalid JWT'}
-          </Button>
-          <Button variant="primary" onClick={send}>
-            <Send className="h-4 w-4" />
-            Send request
-          </Button>
-        </>
+        <Button variant="primary" onClick={send}>
+          <Send className="h-4 w-4" />
+          Send request
+        </Button>
       }
       insight={
-        <Insight title={rejectedStage ? `Rejected at: ${rejectedStage.label}` : 'Request accepted'}>
+        <Insight
+          title={
+            stageIndex < 0
+              ? rejectedStage
+                ? `Would be rejected at: ${rejectedStage.label}`
+                : 'Would be accepted'
+              : rejectedStage
+                ? `Rejected at: ${rejectedStage.label}`
+                : 'Request accepted'
+          }
+        >
           {rejectedStage ? (
             <>
               {rejectedStage.detail}. The request never reached a backend service, so it consumed a few microseconds of
@@ -305,7 +309,7 @@ Authorization: Bearer ${validToken ? 'eyJhbGciOiJIUzI1NiIs...' : 'tampered.token
           <Button className="w-full justify-center" onClick={() => changed(setQuotaUsed)(0)}>
             Reset quota window
           </Button>
-          <div className="rounded-xl border border-line bg-elevated p-3 text-[11px] text-muted">
+          <div className="border-t border-line pt-4 text-[11px] text-muted">
             <p className="label mb-2">Watch out for</p>
             <ul className="space-y-1">
               <li>Business logic creeping into the gateway</li>
@@ -323,7 +327,6 @@ Authorization: Bearer ${validToken ? 'eyJhbGciOiJIUzI1NiIs...' : 'tampered.token
           title="API Gateway x2"
           subtitle="auth - limits - routing"
           placed={LAYOUT.gateway}
-          status={rejectedStage && stageIndex >= 0 ? 'degraded' : 'healthy'}
         >
           {stages.map((stage, index) => (
             <NodeStatRow

@@ -1,17 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { BookMarked, FlaskConical, FolderTree, Route, Search as SearchIcon, X } from 'lucide-react';
-import { cn } from '@/utils/cn';
-import { search, type SearchKind, type SearchResult } from '@/utils/search';
-import { Badge, Modal } from '@/components/ui';
+import { Suspense, useEffect, useId, useState } from 'react';
+import { AlertTriangle, RotateCcw, WifiOff } from 'lucide-react';
+import { Button, ErrorBoundary, Modal } from '@/components/ui';
+import { lazyWithRetry } from '@/utils/lazyWithRetry';
 
-const KIND_META: Record<SearchKind, { label: string; Icon: typeof SearchIcon; tone: 'brand' | 'ok' | 'warn' | 'info' | 'neutral' }> = {
-  lab: { label: 'Lab', Icon: FlaskConical, tone: 'brand' },
-  concept: { label: 'Concept', Icon: BookMarked, tone: 'neutral' },
-  scenario: { label: 'Scenario', Icon: Route, tone: 'warn' },
-  glossary: { label: 'Glossary', Icon: BookMarked, tone: 'info' },
-  category: { label: 'Section', Icon: FolderTree, tone: 'ok' },
-};
+// The dialog brings the search index with it - every Scenario and the Glossary, about
+// 15 KB gzip - so it is its own chunk instead of part of the JavaScript every page waits for.
+const importSearchDialog = () => import('./SearchDialog');
+const loadSearchDialog = () => lazyWithRetry(importSearchDialog);
 
 interface CommandSearchProps {
   open: boolean;
@@ -23,143 +18,76 @@ interface CommandSearchProps {
  * navigable with arrows and Enter.
  */
 export function CommandSearch({ open, onClose }: CommandSearchProps) {
-  // Mounted only while open, so every opening starts from an empty query.
-  return open ? <SearchDialog onClose={onClose} /> : null;
-}
+  const [SearchDialog, setSearchDialog] = useState(loadSearchDialog);
 
-function SearchDialog({ onClose }: { onClose: () => void }) {
-  const [query, setQuery] = useState('');
-  const [active, setActive] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
-  const navigate = useNavigate();
-
-  const results = useMemo(() => search(query), [query]);
-
-  // The list scrolls, so arrowing past its bottom edge must bring the highlight along.
+  // Fetched once the page is idle, so the first Ctrl+K opens at once and a Learner
+  // who goes offline later can still search.
   useEffect(() => {
-    listRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' });
-  }, [active, results]);
-
-  // A new query means a new result list - the highlight goes back to the top.
-  const changeQuery = (next: string) => {
-    setQuery(next);
-    setActive(0);
-  };
-
-  // Runs after Modal has noted what had focus before, so closing still hands focus back to it.
-  useEffect(() => {
-    inputRef.current?.focus();
+    const prefetch = () => void importSearchDialog().catch(() => {});
+    // Safari has no requestIdleCallback.
+    if (typeof window.requestIdleCallback === 'function') {
+      const id = window.requestIdleCallback(prefetch, { timeout: 5000 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = setTimeout(prefetch, 2000);
+    return () => clearTimeout(id);
   }, []);
 
-  const go = (result: SearchResult | undefined) => {
-    if (!result) return;
-    navigate(result.to);
-    onClose();
-  };
+  // Mounted only while open, so every opening starts from an empty query.
+  if (!open) return null;
+  return (
+    // Its own boundary: this sits outside the page boundary, so a failed download here
+    // would otherwise replace every page with the application crash screen.
+    <ErrorBoundary
+      area="Search"
+      fallback={(_error, reset) => (
+        <SearchUnavailable
+          onClose={onClose}
+          onRetry={() => {
+            setSearchDialog(() => loadSearchDialog());
+            reset();
+          }}
+        />
+      )}
+    >
+      <Suspense fallback={null}>
+        <SearchDialog onClose={onClose} />
+      </Suspense>
+    </ErrorBoundary>
+  );
+}
 
-  const onKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      setActive((index) => Math.max(0, Math.min(index + 1, results.length - 1)));
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      setActive((index) => Math.max(index - 1, 0));
-    } else if (event.key === 'Enter' && event.target === inputRef.current) {
-      // On a focused button, Enter keeps its native meaning (click that button).
-      event.preventDefault();
-      go(results[active]);
-    }
-  };
-
+/** Stands in for the search dialog when its code could not be downloaded. */
+function SearchUnavailable({ onClose, onRetry }: { onClose: () => void; onRetry: () => void }) {
+  const titleId = useId();
+  const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+  const Icon = offline ? WifiOff : AlertTriangle;
   return (
     <Modal
       onClose={onClose}
-      label="Search"
-      className="items-start justify-center bg-black/50 px-4 pt-[12vh] backdrop-blur-sm"
-      panelClassName="w-full max-w-2xl overflow-hidden rounded-2xl border border-line bg-surface shadow-card"
-      // On the panel rather than the input: Esc and the arrows must keep working
-      // after a click moved focus onto a suggestion or result button.
-      onKeyDown={onKeyDown}
+      labelledBy={titleId}
+      className="items-start justify-center overflow-y-auto bg-black/50 px-4 pb-4 pt-[12vh] backdrop-blur-sm short:pt-4"
+      panelClassName="w-full max-w-sm rounded-2xl border border-line bg-surface p-5 shadow-card"
     >
-      <div className="flex items-center gap-3 border-b border-line px-4">
-        <SearchIcon className="h-4 w-4 shrink-0 text-faint" />
-        <input
-          ref={inputRef}
-          value={query}
-          onChange={(event) => changeQuery(event.target.value)}
-          placeholder="Search concepts, labs, scenarios, glossary..."
-          aria-label="Search query"
-          className="h-14 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-faint"
-        />
-        <button type="button" onClick={onClose} aria-label="Close search" className="text-faint hover:text-ink">
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
-      <div ref={listRef} className="max-h-[50vh] overflow-y-auto p-2">
-        {query && results.length === 0 ? (
-          <p className="px-3 py-8 text-center text-sm text-muted">
-            No matches for &ldquo;{query}&rdquo;. Try &ldquo;cache&rdquo;, &ldquo;shard&rdquo; or &ldquo;queue&rdquo;.
+      <div role="alert" className="flex items-start gap-3">
+        <Icon className="mt-0.5 h-5 w-5 shrink-0 text-warn" aria-hidden />
+        <div className="min-w-0">
+          <h2 id={titleId} className="text-sm font-semibold text-ink">
+            Search could not load
+          </h2>
+          <p className="mt-1 text-sm text-muted">
+            {offline
+              ? 'You are offline. Reconnect, then try again. The sidebar still reaches every Concept.'
+              : 'The connection dropped while it was downloading. Try again. The sidebar still reaches every Concept.'}
           </p>
-        ) : null}
-
-        {!query ? (
-          <div className="px-3 py-6 text-center text-sm text-muted">
-            Try{' '}
-            {['load balancer', 'caching', 'sharding', 'circuit breaker'].map((suggestion) => (
-              <button
-                key={suggestion}
-                type="button"
-                onClick={() => {
-                  changeQuery(suggestion);
-                  // The chip unmounts once results show - hand focus back to the input.
-                  inputRef.current?.focus();
-                }}
-                className="mx-1 rounded-md border border-line px-2 py-0.5 text-xs text-ink transition-colors hover:border-brand hover:text-brand"
-              >
-                {suggestion}
-              </button>
-            ))}
-          </div>
-        ) : null}
-
-        {results.map((result, index) => {
-          const meta = KIND_META[result.kind];
-          return (
-            <button
-              key={result.id}
-              type="button"
-              data-active={index === active}
-              onMouseEnter={() => setActive(index)}
-              onClick={() => go(result)}
-              className={cn(
-                'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors',
-                index === active ? 'bg-elevated' : 'hover:bg-elevated',
-              )}
-            >
-              <meta.Icon className="h-4 w-4 shrink-0 text-faint" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium text-ink">{result.title}</span>
-                <span className="block truncate text-xs text-faint">{result.subtitle}</span>
-              </span>
-              <Badge tone={meta.tone}>{meta.label}</Badge>
-            </button>
-          );
-        })}
+        </div>
       </div>
-
-      <div className="flex items-center gap-4 border-t border-line px-4 py-2 text-[11px] text-faint">
-        <span>
-          <kbd className="rounded border border-line px-1">up</kbd>{' '}
-          <kbd className="rounded border border-line px-1">down</kbd> navigate
-        </span>
-        <span>
-          <kbd className="rounded border border-line px-1">enter</kbd> open
-        </span>
-        <span>
-          <kbd className="rounded border border-line px-1">esc</kbd> close
-        </span>
+      <div className="mt-5 flex flex-wrap justify-end gap-2">
+        <Button onClick={onClose}>Close</Button>
+        <Button variant="primary" onClick={onRetry}>
+          <RotateCcw className="h-4 w-4" aria-hidden />
+          Try again
+        </Button>
       </div>
     </Modal>
   );

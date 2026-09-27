@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useRef, type ReactNode } from 'react';
 import { RefreshCcw, Rewind } from 'lucide-react';
 import { ArchNode, DiagramCanvas, NodeStatRow, ParticleLegend, type DiagramEdge, type Layout, type ParticleView } from '@/components/architecture';
 import { Insight, LabShell, MetricsPanel } from '@/components/learning';
@@ -37,6 +37,7 @@ import {
   type OffsetReset,
   type SeekResult,
 } from './eventLogModel';
+import { useLabRunning } from '@/hooks/useLabRunning';
 
 interface Setup {
   /** Commands per second sent to the write model. */
@@ -126,17 +127,18 @@ const PARTICLES_PER_FLOW = 8;
 
 const WIDTH = 900;
 const HEIGHT = 630;
-const PARTITION_H = 128;
+const PARTITION_H = 132;
 const MEMBER_H = 96;
 
 function buildLayout(partitions: number, members: number, snapshots: boolean): Layout {
+  // The left column is 210 wide: "write model: appends events" needs about 207.
   const layout: Layout = {
-    producer: { x: 24, y: 20, w: 200, h: 112 },
-    projector: { x: 24, y: 300, w: 200, h: 112 },
+    producer: { x: 24, y: 20, w: 210, h: 116 },
+    projector: { x: 24, y: 300, w: 210, h: 116 },
     readModel: { x: 300, y: 470, w: 290, h: 140 },
     query: { x: 680, y: 490, w: 190, h: 96 },
   };
-  if (snapshots) layout.snapshot = { x: 24, y: 470, w: 200, h: 96 };
+  if (snapshots) layout.snapshot = { x: 24, y: 470, w: 210, h: 96 };
   // Partitions and members are stacked in their own columns, centred on the same band.
   const partitionGap = 20;
   const partitionTop = 20 + (3 - partitions) * ((PARTITION_H + partitionGap) / 2);
@@ -159,7 +161,7 @@ export function EventLogLab({ focus }: LabProps<'event-log'>) {
   const { writeRate, partitions, members, memberRate, replayFrom, offsetReset, projectorRate, delayMs, bug, snapshots, retention } =
     setup;
 
-  const [running, setRunning] = useState(true);
+  const [running, setRunning] = useLabRunning();
   const state = useRef<State>(createState(start));
   const rerender = useRerender(30);
   const { events, log, clear } = useEventLog();
@@ -378,12 +380,12 @@ export function EventLogLab({ focus }: LabProps<'event-log'>) {
     // Each partition is wired to the one billing member that owns it, and to the
     // projector. A member past the partition count has no wire: that is the lesson.
     ...(members > 0
-      ? Array.from({ length: partitions }, (_, index) => ({ from: `p${index}`, to: `m${index % members}`, tone: 'ok' as const }))
+      ? Array.from({ length: partitions }, (_, index) => ({ from: `p${index}`, to: `m${index % members}`, tone: 'brand' as const }))
       : []),
     ...Array.from({ length: partitions }, (_, index) => ({ from: `p${index}`, to: 'projector', tone: 'violet' as const })),
     { from: 'projector', to: 'readModel', tone: 'violet', width: 2 },
     ...(snapshots ? [{ from: 'projector', to: 'snapshot', tone: 'muted' as const, dashed: true }] : []),
-    { from: 'query', to: 'readModel', tone: 'ok' },
+    { from: 'query', to: 'readModel', tone: 'brand' },
   ];
 
   const particleViews: ParticleView[] = current.particles
@@ -409,7 +411,7 @@ export function EventLogLab({ focus }: LabProps<'event-log'>) {
       title="Event Log Lab"
       description="An append-only log split into partitions. A consumer group and a projector read it at their own offsets; the projector folds it into a read model you can throw away and rebuild."
       running={running}
-      onToggleRun={() => setRunning((value) => !value)}
+      onRunningChange={setRunning}
       onReset={reset}
       events={events}
       actions={
@@ -638,7 +640,7 @@ export function EventLogLab({ focus }: LabProps<'event-log'>) {
               }
               compact
             >
-              {members > 0 ? <OffsetTrack label="billing" offset={model.billing.offsets[index]} end={end} tone="ok" /> : null}
+              {members > 0 ? <OffsetTrack label="billing" offset={model.billing.offsets[index]} end={end} tone="brand" /> : null}
               <OffsetTrack label="projector" offset={projector.offsets[index]} end={end} tone="violet" />
             </ArchNode>
           );
@@ -754,7 +756,7 @@ const listPartitions = (results: SeekResult[]) => results.map((result) => `P${re
  */
 function SeekPreview({ results, model, reread }: { results: SeekResult[]; model: LogState; reread: number }) {
   return (
-    <div className="space-y-1 rounded-lg border border-line bg-elevated/60 p-2 text-[11px]">
+    <div className="space-y-1 text-[11px]">
       {results.map((result) => {
         const log = model.partitions[result.partition];
         return (
@@ -792,7 +794,7 @@ const TRACK_WINDOW = 60;
  * the rest up to the log end is its lag. Its offset and lag are written out
  * too, so the picture never carries meaning by colour alone.
  */
-function OffsetTrack({ label, offset, end, tone }: { label: string; offset: number; end: number; tone: 'ok' | 'violet' }) {
+function OffsetTrack({ label, offset, end, tone }: { label: string; offset: number; end: number; tone: 'brand' | 'violet' }) {
   const from = Math.max(0, end - TRACK_WINDOW);
   const read = clamp((offset - from) / Math.max(end - from, 1), 0, 1);
   const lag = end - offset;
@@ -806,8 +808,8 @@ function OffsetTrack({ label, offset, end, tone }: { label: string; offset: numb
           <span className={cn('ml-1', lag > 10 ? 'text-warn' : 'text-faint')}>lag {formatNumber(lag)}</span>
         </span>
       </div>
-      <div className="flex h-1.5 overflow-hidden rounded-full bg-elevated">
-        <div className={cn('h-full', tone === 'ok' ? 'bg-ok/70' : 'bg-violet/70')} style={{ width: `${read * 100}%` }} />
+      <div className="flex h-1.5 overflow-hidden rounded-full bg-elevated" aria-hidden>
+        <div className={cn('h-full', tone === 'brand' ? 'bg-brand/70' : 'bg-violet/70')} style={{ width: `${read * 100}%` }} />
         <div className="h-full flex-1 bg-warn/40" />
       </div>
     </div>

@@ -1,4 +1,16 @@
-import { Suspense, createContext, useContext, useEffect, useMemo, useSyncExternalStore, type ReactNode } from 'react';
+import {
+  Suspense,
+  createContext,
+  useContext,
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
+import { AlertTriangle, RotateCcw, WifiOff } from 'lucide-react';
+import { Button, ErrorBoundary, Modal } from '@/components/ui';
 import { safeLocalStorage } from '@/utils/safeStorage';
 import { lazyWithRetry } from '@/utils/lazyWithRetry';
 import {
@@ -14,7 +26,8 @@ import {
 import { apiFetch, apiUrlFrom, type ApiResult } from '@/app/account/api';
 import type { AuthSession } from '@/features/account/firebase';
 
-const SignInDialog = lazyWithRetry(() => import('@/features/account/SignInDialog'));
+// A failed lazy import stays failed for the life of that lazy component, so "Try again" makes a new one.
+const loadSignInDialog = () => lazyWithRetry(() => import('@/features/account/SignInDialog'));
 
 const FIREBASE_CONFIG = firebaseConfigFrom({
   VITE_FIREBASE_API_KEY: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -104,6 +117,8 @@ interface Snapshot {
   confirmPending: boolean;
   /** The SDK is loaded and Auth is up: a click can open the popup at once. */
   sessionReady: boolean;
+  /** The SDK could not be downloaded (offline, flaky network). Cleared by the next try. */
+  sessionFailed: boolean;
   signInOpen: boolean;
 }
 
@@ -115,6 +130,7 @@ function createAccountStore(config: FirebaseWebConfig | null, apiUrl: string | n
     email: null,
     confirmPending: false,
     sessionReady: false,
+    sessionFailed: false,
     signInOpen: false,
   };
   const listeners = new Set<() => void>();
@@ -156,14 +172,14 @@ function createAccountStore(config: FirebaseWebConfig | null, apiUrl: string | n
       ({ startAuth }) => {
         session = startAuth(config);
         session.onUserChange(applyUser);
-        update({ sessionReady: true });
+        update({ sessionReady: true, sessionFailed: false });
         return session;
       },
       () => {
         // Offline with the SDK not cached. Keep the mark, so the next start tries
         // again, and show a Guest meanwhile - every page works either way.
         starting = null;
-        if (snapshot.status === 'restoring') update({ status: 'guest' });
+        update({ sessionFailed: true, ...(snapshot.status === 'restoring' ? { status: 'guest' as const } : {}) });
         return null;
       },
     );
@@ -245,7 +261,12 @@ function createAccountStore(config: FirebaseWebConfig | null, apiUrl: string | n
     },
     openSignIn() {
       if (!config) return;
-      update({ signInOpen: true });
+      update({ signInOpen: true, sessionFailed: false });
+      void ensureSession();
+    },
+    /** The dialog's "Try again" after the SDK failed to download. */
+    retrySession() {
+      update({ sessionFailed: false });
       void ensureSession();
     },
     closeSignIn: () => update({ signInOpen: false }),
@@ -320,6 +341,7 @@ const AccountContext = createContext<AccountContextValue | null>(null);
  */
 export function AccountProvider({ children }: { children: ReactNode }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const [SignInDialog, setSignInDialog] = useState(loadSignInDialog);
 
   useEffect(() => store.restore(), []);
 
@@ -354,16 +376,69 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     <AccountContext.Provider value={value}>
       {children}
       {snapshot.signInOpen ? (
-        <Suspense fallback={null}>
-          <SignInDialog
-            ready={snapshot.sessionReady}
-            onGoogle={store.signInWithGoogle}
-            emailAuth={store.emailAuth}
-            onClose={store.closeSignIn}
-          />
-        </Suspense>
+        // Its own boundary: this sits outside the router, so a failed download here would
+        // otherwise replace every page with the application crash screen.
+        <ErrorBoundary
+          area="Sign in"
+          fallback={(_error, reset) => (
+            <SignInUnavailable
+              onClose={store.closeSignIn}
+              onRetry={() => {
+                setSignInDialog(() => loadSignInDialog());
+                reset();
+              }}
+            />
+          )}
+        >
+          <Suspense fallback={null}>
+            <SignInDialog
+              ready={snapshot.sessionReady}
+              failed={snapshot.sessionFailed}
+              onRetry={store.retrySession}
+              onGoogle={store.signInWithGoogle}
+              emailAuth={store.emailAuth}
+              onClose={store.closeSignIn}
+            />
+          </Suspense>
+        </ErrorBoundary>
       ) : null}
     </AccountContext.Provider>
+  );
+}
+
+/** Stands in for the sign-in dialog when its code could not be downloaded. */
+function SignInUnavailable({ onClose, onRetry }: { onClose: () => void; onRetry: () => void }) {
+  const titleId = useId();
+  const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+  const Icon = offline ? WifiOff : AlertTriangle;
+  return (
+    <Modal
+      onClose={onClose}
+      labelledBy={titleId}
+      className="items-start justify-center overflow-y-auto bg-black/50 px-4 pb-4 pt-[12vh] backdrop-blur-sm short:pt-4"
+      panelClassName="w-full max-w-sm rounded-2xl border border-line bg-surface p-5 shadow-card"
+    >
+      <div role="alert" className="flex items-start gap-3">
+        <Icon className="mt-0.5 h-5 w-5 shrink-0 text-warn" aria-hidden />
+        <div className="min-w-0">
+          <h2 id={titleId} className="text-sm font-semibold text-ink">
+            Sign-in could not load
+          </h2>
+          <p className="mt-1 text-sm text-muted">
+            {offline
+              ? 'You are offline. Reconnect, then try again. Every page still works without an Account.'
+              : 'The connection dropped while it was downloading. Try again. Every page still works without an Account.'}
+          </p>
+        </div>
+      </div>
+      <div className="mt-5 flex flex-wrap justify-end gap-2">
+        <Button onClick={onClose}>Close</Button>
+        <Button variant="primary" onClick={onRetry}>
+          <RotateCcw className="h-4 w-4" aria-hidden />
+          Try again
+        </Button>
+      </div>
+    </Modal>
   );
 }
 

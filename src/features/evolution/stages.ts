@@ -163,7 +163,7 @@ export const STAGES: Stage[] = [
     // servers is still a system with one box that takes everything down.
     nodes: [
       { id: 'client', kind: 'client', title: 'Clients', placed: box(400, 16, 180, 69) },
-      { id: 'lb', kind: 'load-balancer', title: 'Load Balancer', subtitle: 'active, holds the VIP', placed: box(245, 120, 190, 84), isNew: true },
+      { id: 'lb', kind: 'load-balancer', title: 'Load Balancer', subtitle: 'active, holds the VIP', placed: box(245, 120, 191, 84), isNew: true },
       { id: 'lb2', kind: 'load-balancer', title: 'Standby LB', subtitle: 'takes over on failure', placed: box(530, 120, 190, 84), isNew: true, standby: true },
       { id: 'api1', kind: 'server', title: 'API 1', placed: box(170, 285, 160, 88), isNew: true },
       { id: 'api2', kind: 'server', title: 'API 2', placed: box(400, 285, 160, 88), isNew: true },
@@ -288,8 +288,8 @@ export const STAGES: Stage[] = [
       { id: 'api', kind: 'server', title: 'API x3', subtitle: 'stateless, any instance', placed: box(385, 140, 190, 84) },
       { id: 'cache', kind: 'cache', title: 'Redis', subtitle: 'cache + sessions', placed: box(90, 150, 170, 84) },
       { id: 'db', kind: 'sql', title: 'Primary DB', subtitle: 'all writes', placed: box(385, 290, 190, 84) },
-      { id: 'r1', kind: 'sql', title: 'Replica 1', subtitle: 'reads', placed: box(175, 430, 175, 80), isNew: true },
-      { id: 'r2', kind: 'sql', title: 'Replica 2', subtitle: 'reads', placed: box(600, 430, 175, 80), isNew: true },
+      { id: 'r1', kind: 'sql', title: 'Replica 1', subtitle: 'reads', placed: box(175, 430, 175, 83), isNew: true },
+      { id: 'r2', kind: 'sql', title: 'Replica 2', subtitle: 'reads', placed: box(600, 430, 175, 83), isNew: true },
     ],
     edges: [
       { from: 'lb', to: 'api', tone: 'ok', width: 2 },
@@ -442,9 +442,9 @@ export const STAGES: Stage[] = [
     nodes: [
       { id: 'cdn', kind: 'cdn', title: 'CDN', placed: box(410, 10, 160, 69) },
       { id: 'gw', kind: 'api-gateway', title: 'API Gateway', subtitle: 'redundant pair', placed: box(380, 98, 190, 78) },
-      { id: 'monitor', kind: 'monitoring', title: 'Tracing', subtitle: 'every request', placed: box(700, 98, 160, 76), isNew: true },
+      { id: 'monitor', kind: 'monitoring', title: 'Tracing', subtitle: 'every request', placed: box(700, 98, 160, 83), isNew: true },
       { id: 'orders', kind: 'service', title: 'Orders', placed: box(120, 218, 165, 80) },
-      { id: 'payments', kind: 'service', title: 'Payments', placed: box(380, 218, 165, 80), isNew: true },
+      { id: 'payments', kind: 'service', title: 'Payments', placed: box(380, 218, 166, 80), isNew: true },
       { id: 'notify', kind: 'service', title: 'Notifications', placed: box(640, 218, 190, 80), isNew: true },
       { id: 'cache', kind: 'cache', title: 'Redis', placed: box(45, 380, 150, 76) },
       { id: 'ordersdb', kind: 'sql', title: 'Orders DB', placed: box(225, 380, 160, 76) },

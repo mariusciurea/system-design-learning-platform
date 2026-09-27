@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react';
-import { motion, useReducedMotion } from 'framer-motion';
 import { cn } from '@/utils/cn';
 import type { NodeKind, NodeStatus } from '@/types';
 import { NODE_KINDS } from './nodeKinds';
@@ -46,36 +45,27 @@ export function ArchNode({
 }: ArchNodeProps) {
   const { Icon, accent } = NODE_KINDS[kind];
   const interactive = Boolean(onClick);
-  // Nodes appear and move with a spring, so adding a server reads as the
-  // architecture changing rather than the diagram being redrawn.
-  const Element = interactive ? motion.button : motion.div;
-  // With the OS "reduce motion" setting, nodes simply appear where they belong.
-  const reduceMotion = useReducedMotion() ?? false;
+  // Nodes fade in and glide to a new place (the `arch-node` class in index.css), so adding a
+  // server reads as the architecture changing rather than the diagram being redrawn. It is a
+  // CSS transition on the placement, so it runs only when the placement changes - never when
+  // DiagramCanvas rescales, and never when a live stat row makes the card taller.
+  const Element = interactive ? 'button' : 'div';
 
   return (
     <Element
       type={interactive ? 'button' : undefined}
       onClick={onClick}
       aria-pressed={interactive && selected ? true : undefined}
-      layout={!reduceMotion}
-      // A placed node animates only when its placement changes. Without this,
-      // framer-motion re-measures on every render and would spring the card
-      // whenever DiagramCanvas rescales to its container (the measured box
-      // changes although the node did not move), and would squash the text
-      // when a live stat row makes the card taller.
-      layoutDependency={placed ? `${placed.x},${placed.y},${placed.w},${placed.h}` : undefined}
-      initial={reduceMotion ? false : { opacity: 0, scale: 0.85 }}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={{ type: 'spring', stiffness: 320, damping: 28 }}
       style={
         placed
           ? { position: 'absolute', left: placed.x, top: placed.y, width: placed.w, minHeight: placed.h }
           : undefined
       }
       className={cn(
-        'z-10 flex flex-col rounded-xl border bg-surface text-left shadow-node transition-all duration-200',
+        'arch-node z-10 flex flex-col rounded-xl border bg-surface text-left shadow-node',
         compact ? 'gap-1 p-2' : 'gap-1.5 p-3',
-        status === 'down' ? 'border-danger/60 opacity-70 saturate-0' : 'border-line',
+        status === 'down' ? 'border-danger/60 saturate-0' : 'border-line',
+        status === 'overloaded' && 'border-danger ring-2 ring-danger/35',
         selected && 'border-brand shadow-glow',
         alert && 'border-warn ring-2 ring-warn/35',
         interactive && 'hover:border-brand/60 hover:shadow-glow',

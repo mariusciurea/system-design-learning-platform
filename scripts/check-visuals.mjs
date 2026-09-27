@@ -6,71 +6,29 @@
  * silently truncates its label or overlaps the node below. This asserts that
  * cannot happen, and that the wiring says something true: identical replicas
  * must have identical connections unless the diagram declares otherwise.
- * Run with `npm run check:visuals`.
+ *
+ * The Labs build their Diagrams in JSX, often from their controls, so they are
+ * rendered instead (lab-diagrams.mjs): as they open, with every Lab focus, and
+ * with their controls at both ends. Each card's real height comes from its markup
+ * (node-box.mjs), and the same geometry checks run on what was drawn. What the
+ * Lab check cannot reach is printed after the result, never skipped silently.
+ * Run with `npm run check:visuals`; `LABS=cdn,proxy npm run check:visuals` checks
+ * only those Labs.
  */
 import { build } from 'esbuild';
 import { pathToFileURL } from 'node:url';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { bundleLabs, readFocusIds, readLabs, renderLabSettings } from './lab-diagrams.mjs';
+import { cardBox, cardHeight, cardText, findAll, minCardWidth, parseMarkup } from './node-box.mjs';
 
-// compact ArchNode chrome: 16 padding (p-2) + 2 border + 28 icon (w-7) + 8 gap (gap-2).
-// The border was once left out, and "WHERE created_at >= Sep" passed at 210px
-// while the browser clipped it by a fraction of a pixel.
-const CHROME_X = 54;
-// A "new" badge sits on the title row and pushes the title into its truncation:
-// chip padding 20 + border 2 + ~19 of text + 6 gap. Without this, a node with a
-// badge silently renders as "Replic..." instead of "Replica 1".
-const BADGE_X = 47;
-// Advance width of each printable ASCII character in the ArchNode title font
-// (text-xs font-semibold: 600 12px, the Tailwind sans stack as the browser
-// resolves it), measured in headless Chromium with canvas measureText and
-// rounded up to 0.1px. A flat per-character estimate under-shot titles with
-// wide letters: "Message Queue" renders at 94px, 7.2px per character.
-// Re-measure if the title font, size or weight changes.
-const TITLE_CHAR_W = {
-  " ": 3.2, "!": 4.1, "\"": 6.5, "#": 7.9, "$": 7.9, "%": 12, "&": 8.8, "'": 4, "(": 5, ")": 5,
-  "*": 5.8, "+": 7.9, ",": 4, "-": 5.8, ".": 4, "/": 3.9, "0": 8, "1": 6, "2": 7.6, "3": 7.9,
-  "4": 8.1, "5": 7.8, "6": 8.1, "7": 7.2, "8": 8.1, "9": 8.1, ":": 4, ";": 4, "<": 7.9, "=": 7.9,
-  ">": 7.9, "?": 6.6, "@": 11.1, "A": 8.6, "B": 8.2, "C": 8.8, "D": 8.9, "E": 7.4, "F": 7.1,
-  "G": 9.1, "H": 9.3, "I": 3.7, "J": 7, "K": 8.4, "L": 7.1, "M": 10.8, "N": 9.2, "O": 9.4, "P": 8,
-  "Q": 9.4, "R": 8.2, "S": 8, "T": 7.9, "U": 9.1, "V": 8.5, "W": 12, "X": 8.6, "Y": 8.3, "Z": 8.1,
-  "[": 5, "\\": 3.9, "]": 5, "^": 7.9, "_": 7.4, "`": 6, "a": 7, "b": 7.7, "c": 7, "d": 7.7,
-  "e": 7.1, "f": 4.8, "g": 7.6, "h": 7.5, "i": 3.3, "j": 3.3, "k": 7, "l": 3.4, "m": 11, "n": 7.4,
-  "o": 7.4, "p": 7.7, "q": 7.7, "r": 5, "s": 6.7, "t": 4.8, "u": 7.4, "v": 6.9, "w": 9.9, "x": 6.8,
-  "y": 7, "z": 6.7, "{": 5, "|": 3.5, "}": 5, "~": 7.9,
-};
-// The same measurement for the subtitle font (text-[11px], weight 400 - 11px is
-// the app-wide text floor). It replaced a flat 5.2px per character that was
-// sized for the old 10px subtitle and already under-shot it (5.5px average).
-const SUB_CHAR_W = {
-  "0": 7, "1": 5.2, "2": 6.8, "3": 7, "4": 7.2, "5": 6.9, "6": 7.1, "7": 6.4, "8": 7.1, "9": 7.1,
-  " ": 3.2, "!": 3.5, "\"": 5.4, "#": 7, "$": 7, "%": 10.3, "&": 7.9, "'": 3.4, "(": 4.3, ")": 4.3,
-  "*": 5.3, "+": 7, ",": 3.4, "-": 5.3, ".": 3.4, "/": 3.5, ":": 3.4, ";": 3.4, "<": 7, "=": 7,
-  ">": 7, "?": 5.8, "@": 10.2, "A": 7.5, "B": 7.3, "C": 8, "D": 8.1, "E": 6.7, "F": 6.4, "G": 8.3,
-  "H": 8.3, "I": 3.1, "J": 6, "K": 7.4, "L": 6.4, "M": 9.7, "N": 8.3, "O": 8.6, "P": 7.1, "Q": 8.6,
-  "R": 7.3, "S": 7.1, "T": 7.1, "U": 8.2, "V": 7.5, "W": 10.8, "X": 7.6, "Y": 7.3, "Z": 7.4,
-  "[": 4.3, "\\": 3.5, "]": 4.3, "^": 7, "_": 6.5, "`": 5.6, "a": 6.2, "b": 6.9, "c": 6.3,
-  "d": 6.9, "e": 6.4, "f": 4.1, "g": 6.8, "h": 6.6, "i": 2.8, "j": 2.8, "k": 6.1, "l": 2.9,
-  "m": 9.7, "n": 6.5, "o": 6.6, "p": 6.8, "q": 6.8, "r": 4.3, "s": 5.9, "t": 4.1, "u": 6.5,
-  "v": 6.1, "w": 8.6, "x": 5.9, "y": 6.1, "z": 6, "{": 4.3, "|": 3, "}": 4.3, "~": 7,
-};
-// Anything outside a table (non-ASCII) is assumed as wide as a "W".
-const textWidth = (table, wide) => (label) => [...label].reduce((sum, ch) => sum + (table[ch] ?? wide), 0);
-const titleWidth = textWidth(TITLE_CHAR_W, 12);
-const subWidth = textWidth(SUB_CHAR_W, 10.8);
-const minWidth = (node) =>
-  Math.ceil(
-    CHROME_X + Math.max(titleWidth(node.label) + (node.badge ? BADGE_X : 0), node.sub ? subWidth(node.sub) : 0),
-  );
-// Rendered height of a compact ArchNode, measured in headless Chromium with the
-// built stylesheet: 16 padding + 2 border + 28 icon row + 4 gap + 18.5 status
-// line = 68.5. An 11px subtitle under the title makes the title block 32.5px,
-// 4.5 taller than the icon; a stat row adds 16.5 plus a 4px gap and the stat
-// block's own line box (21.5 in all). The old 62 / +12 / +16 estimate
-// under-shot every case, so a node could pass here and still grow over the one
-// below it. Re-measure if ArchNode's padding, gaps or text sizes change.
-const minHeight = (node) => Math.ceil(68.5 + (node.sub ? 4.5 : 0) + (node.stat ? 21.5 : 0));
+// Title widths, card chrome and card heights live in node-box.mjs, shared with
+// the Lab check below; they were measured in headless Chromium.
+const minWidth = (node) => minCardWidth({ label: node.label, sub: node.sub, badge: node.badge ? 'new' : undefined });
+// Concept Diagrams and evolution stages draw compact cards with at most one stat row;
+// evolution marks a new part with a "new" badge on the title row.
+const minHeight = (node) => Math.ceil(cardHeight({ sub: Boolean(node.sub), badge: Boolean(node.badge), statRows: node.stat ? 1 : 0 }));
 
 const overlaps = (a, b) =>
   a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
@@ -147,6 +105,37 @@ try {
     })),
   ];
 
+  // Edge labels are drawn on the wiring layer, underneath the node cards, so
+  // a label that lands on a box is simply invisible. `layout` places the wires,
+  // `boxes` are the cards as drawn. With no `name`, messages carry no prefix.
+  const edgeLabelProblems = (name, edges, layout, boxes, width) => {
+    const found = [];
+    for (const edge of edges) {
+      if (!edge.label) continue;
+      const from = layout[edge.from];
+      const to = layout[edge.to];
+      if (!from || !to) continue;
+
+      const curve = curveBetween(from, to, edge.curvature);
+      const point = edge.labelT === undefined ? midpoint(curve) : pointOnCurve(curve, edge.labelT);
+      // The same chip DiagramCanvas draws, so the check and the page agree.
+      const labelBox = { id: `label "${edge.label}"`, ...edgeLabelBox(point, edge.label) };
+      const prefix = name ? `${name}: ` : '';
+
+      const hiddenBy = boxes.find((box) => overlaps(labelBox, box));
+      if (hiddenBy) {
+        found.push(
+          `${prefix}label "${edge.label}" on ${edge.from} -> ${edge.to} is hidden behind ${hiddenBy.id}` +
+            ' (move it with labelT, shorten it, or drop it)',
+        );
+      }
+      if (labelBox.x < 0 || labelBox.x + labelBox.w > width || labelBox.y < 0) {
+        found.push(`${prefix}label "${edge.label}" on ${edge.from} -> ${edge.to} falls outside the canvas`);
+      }
+    }
+    return found;
+  };
+
   const problems = [];
 
   for (const spec of specs) {
@@ -175,7 +164,8 @@ try {
       }
       // The Walkthrough is read as the story of the drawn system, so a step may
       // only travel a wire the Diagram draws (either way: a response goes back).
-      const drawn = spec.edges.some(
+      // A step from a part to itself is work inside that part and travels no wire.
+      const drawn = step.from === step.to || spec.edges.some(
         (edge) => (edge.from === step.from && edge.to === step.to) || (edge.from === step.to && edge.to === step.from),
       );
       if (!drawn) problems.push(`${name}: step ${step.from} -> ${step.to} follows no drawn edge`);
@@ -260,42 +250,112 @@ try {
       }
     }
 
-    // Edge labels are drawn on the wiring layer, underneath the node cards, so
-    // a label that lands on a box is simply invisible.
     const byId = Object.fromEntries(boxes.map((box) => [box.id, box]));
-    for (const edge of spec.edges) {
-      if (!edge.label) continue;
-      const from = byId[edge.from];
-      const to = byId[edge.to];
-      if (!from || !to) continue;
-
-      const curve = curveBetween(from, to, edge.curvature);
-      const point = edge.labelT === undefined ? midpoint(curve) : pointOnCurve(curve, edge.labelT);
-      // The same chip DiagramCanvas draws, so the check and the page agree.
-      const labelBox = { id: `label "${edge.label}"`, ...edgeLabelBox(point, edge.label) };
-
-      for (const box of boxes) {
-        if (overlaps(labelBox, box)) {
-          problems.push(
-            `${name}: label "${edge.label}" on ${edge.from} -> ${edge.to} is hidden behind ${box.id}` +
-              ' (move it with labelT, shorten it, or drop it)',
-          );
-          break;
-        }
-      }
-      if (labelBox.x < 0 || labelBox.x + labelBox.w > width || labelBox.y < 0) {
-        problems.push(`${name}: label "${edge.label}" on ${edge.from} -> ${edge.to} falls outside the canvas`);
-      }
-    }
+    problems.push(...edgeLabelProblems(name, spec.edges, byId, boxes, width));
   }
+
+  // Lab Diagrams. Each distinct Diagram a Lab draws in any checked setting is
+  // checked like a spec, with each card at the height the browser will give it.
+  // A problem found in several settings is reported once, with the first setting.
+  // LABS=load-balancer,cdn checks only those Labs (the rest of the diagrams still run).
+  const only = process.env.LABS?.split(',');
+  const labs = readLabs().filter((lab) => !only || only.includes(lab.id));
+  const focusIds = readFocusIds();
+  const labModule = await bundleLabs(labs, dir);
+  const labProblems = new Map();
+  const limits = { errors: [], buttons: [], unread: new Map() };
+  let labDiagrams = 0;
+  let labSettings = 0;
+
+  labs.forEach((lab, index) => {
+    const { settings, errors, usesButtons } = renderLabSettings(labModule, labModule.LAB_COMPONENTS[index], focusIds[lab.id] ?? []);
+    limits.errors.push(...errors.map((error) => `${lab.id}: ${error}`));
+    if (usesButtons) limits.buttons.push(lab.id);
+    if (!settings.length) limits.errors.push(`${lab.id}: no setting rendered`);
+    labSettings += settings.reduce((sum, setting) => sum + setting.names.length, 0);
+
+    const seen = new Set();
+    for (const setting of settings) {
+      const cards = findAll(parseMarkup(setting.html), (element) => element.tag === 'sdi-node');
+      const cardAt = new Map(cards.map((wrapper) => [Number(wrapper.attrs['data-i']), wrapper.children.find((child) => child.tag !== '#text')]));
+
+      setting.canvases.forEach((canvas, canvasIndex) => {
+        const nodes = canvas.nodes.map((node, nodeIndex) => {
+          const card = cardAt.get(canvasIndex * 1000 + nodeIndex);
+          const text = cardText(card);
+          const { contentHeight, problems: unread } = cardBox(card);
+          for (const reason of unread) limits.unread.set(`${lab.id}: "${text.label}" (${reason})`, true);
+          return { ...node, ...text, id: node.id ?? `"${text.label}"`, rendered: Math.ceil(contentHeight) };
+        });
+        const key = JSON.stringify([canvas.width, canvas.height, canvas.layout, canvas.edges, nodes]);
+        if (seen.has(key)) return;
+        seen.add(key);
+        labDiagrams += 1;
+
+        const found = [];
+        const { width, height } = canvas;
+        const boxes = nodes.map((node) => ({ id: node.id, ...node.placed, h: Math.max(node.placed.h, node.rendered) }));
+        for (const node of nodes) {
+          const { x, y, w, h } = node.placed;
+          if (node.rendered > h) found.push(`${node.id} renders ${node.rendered}px tall, placed ${h}px`);
+          if (w < minCardWidth(node)) found.push(`${node.id} is ${w}px wide, needs ${minCardWidth(node)}px for "${node.label}"${node.sub ? ` / "${node.sub}"` : ''}`);
+          const bottom = y + Math.max(h, node.rendered);
+          if (x < 0 || y < 0) found.push(`${node.id} has a negative position`);
+          if (x + w > width) found.push(`${node.id} runs ${x + w - width}px past the canvas width`);
+          if (bottom > height) found.push(`${node.id} runs ${bottom - height}px past the canvas height (${height}px)`);
+        }
+        for (let i = 0; i < boxes.length; i += 1) {
+          for (let j = i + 1; j < boxes.length; j += 1) {
+            if (overlaps(boxes[i], boxes[j])) found.push(`${boxes[i].id} overlaps ${boxes[j].id}`);
+          }
+        }
+        // Wires run between placed boxes (DiagramCanvas curves from the layout), labels
+        // hide behind the cards as rendered.
+        found.push(...edgeLabelProblems(null, canvas.edges, canvas.layout, boxes, width));
+
+        const where = setting.names[0] + (canvasIndex ? `, diagram ${canvasIndex + 1}` : '');
+        for (const problem of found) {
+          const message = `lab ${lab.id}: ${problem}`;
+          if (!labProblems.has(message)) labProblems.set(message, new Set());
+          labProblems.get(message).add(where);
+        }
+      });
+    }
+  });
+
+  for (const [message, where] of labProblems) {
+    const [first] = where;
+    problems.push(`${message} (${first}${where.size > 1 ? ` and ${where.size - 1} more setting(s)` : ''})`);
+  }
+
+  // What the Lab check cannot see, said every run so it is never mistaken for a pass.
+  const notes = [
+    'Lab check limits:',
+    '- Each setting is the first frame after the controls move: parts the simulation adds, removes or',
+    '  relabels while it runs (auto-scaled servers, a failed node) are not reached.',
+    '- Only ArchNode cards are measured; other HTML placed on a Diagram (zones, panels) is not.',
+  ];
+  if (limits.buttons.length) {
+    notes.push(`- Choices made with plain buttons are not clicked, only Slider, Stepper, Toggle, SegmentedControl and Select: ${limits.buttons.join(', ')}.`);
+  }
+  if (limits.errors.length) notes.push('- Settings that failed to render, not checked:', ...limits.errors.map((line) => `  ${line}`));
+  if (limits.unread.size) {
+    notes.push('- Cards whose content node-box.mjs cannot read, height not checked:', ...[...limits.unread.keys()].map((line) => `  ${line}`));
+  }
+
+  const summary =
+    `${specs.length + labDiagrams} diagrams checked (${specs.length} concept, hero and evolution; ` +
+    `${labDiagrams} from ${labSettings} settings of ${labs.length} Labs)`;
 
   if (problems.length) {
     console.error(problems.join('\n'));
-    console.error(`\n${problems.length} problem(s) in ${specs.length} diagrams`);
+    console.error(`\n${notes.join('\n')}`);
+    console.error(`\n${problems.length} problem(s) - ${summary}`);
     process.exit(1);
   }
 
-  console.log(`${specs.length} diagrams checked - geometry and wiring consistent`);
+  console.log(notes.join('\n'));
+  console.log(`\n${summary} - geometry and wiring consistent`);
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }

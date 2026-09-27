@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, type ReactNode } from 'react';
 import { Calculator, Scale } from 'lucide-react';
 import {
   ArchNode,
@@ -10,59 +10,48 @@ import {
   type ParticleView,
 } from '@/components/architecture';
 import { Insight, LabShell, MetricsPanel } from '@/components/learning';
-import { Slider, Toggle } from '@/components/ui';
+import { SegmentedControl, Slider, Toggle } from '@/components/ui';
 import { advanceParticles, nextParticleId, useTicker, type Particle } from '@/simulations/engine';
 import { useLabSetup } from '@/hooks/useLabSetup';
 import { useRerender } from '@/hooks/useRerender';
 import { cn } from '@/utils/cn';
 import { clamp, sampleArrivals } from '@/utils/math';
 import { formatCompact, formatNumber } from '@/utils/format';
-import type { LabFocus, LabProps, RequestOutcome } from '@/types';
+import type { LabProps, RequestOutcome } from '@/types';
 import {
-  HEADROOM,
   PRIMARY_WRITE_LIMIT,
   SCALE_LABEL,
   SERVER_CAPACITY,
+  WRITE_DECISION_LABEL,
+  capacitySteps,
   exactEstimate,
+  formatCopies,
+  formatGigabitsPerSec,
+  formatMegabytesPerSec,
   formatPowerOfTen,
+  formatRate,
   formatSize,
+  numberFormats,
   offBy,
   roughEstimate,
+  sameDecision,
   scaleOf,
-  type CapacityInputs,
+  writeDecisionOf,
   type Estimate,
 } from './capacityModel';
+import { CapacitySpeedView } from './CapacitySpeedView';
+import { startOf, type CapacityView, type SizeSetup } from './capacitySetup';
+import type { SpeedInputs } from './latencyModel';
+import { useLabRunning } from '@/hooks/useLabRunning';
 
-interface Setup extends CapacityInputs {
-  /** Napkin mode: big numbers become powers of ten, small factors keep one significant figure. */
-  rounding: boolean;
-}
-
-/** What the lab opens on at /labs/capacity, with no Lab focus. */
-const DEFAULT_SETUP: Setup = {
-  dau: 10_000_000,
-  requestsPerUser: 20,
-  writeShare: 0.1,
-  objectSizeKb: 2,
-  peakFactor: 5,
-  retentionYears: 5,
-  replicationFactor: 3,
-  rounding: false,
-};
-
-/**
- * Capacity estimation opens on the full step-by-step estimate with exact arithmetic. Back-of-the-
- * envelope opens in napkin mode on inputs that are not round (12M users, 8 requests, 1.2 KB), so the
- * learner watches them become powers of ten and the rough answer land close to the exact one.
- */
-const FOCUS_SETUPS: Record<LabFocus<'capacity'>, Setup> = {
-  'capacity-estimation': { ...DEFAULT_SETUP, rounding: false },
-  'back-of-the-envelope': { ...DEFAULT_SETUP, dau: 12_000_000, requestsPerUser: 8, objectSizeKb: 1.2, rounding: true },
-};
+const VIEWS: { value: CapacityView; label: string }[] = [
+  { value: 'size', label: 'Size' },
+  { value: 'speed', label: 'Speed' },
+];
 
 const LAYOUT: Layout = {
-  clients: { x: 16, y: 170, w: 176, h: 122 },
-  lb: { x: 226, y: 170, w: 200, h: 122 },
+  clients: { x: 16, y: 167, w: 176, h: 128 },
+  lb: { x: 226, y: 150, w: 200, h: 160 },
   app: { x: 460, y: 130, w: 244, h: 200 },
   db: { x: 740, y: 20, w: 204, h: 160 },
   storage: { x: 740, y: 276, w: 204, h: 164 },
@@ -76,26 +65,40 @@ const visualRate = (peakQps: number) => clamp(1.5 + 2.4 * Math.log10(Math.max(1,
 const MAX_PIPS = 48;
 const PIP_STEPS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1_000, 2_000, 5_000, 10_000];
 
-/** Rates below 10/sec keep two decimals, so a tiny product does not read as "0 req/sec". */
-const formatRate = (value: number) => (value < 10 ? value.toFixed(2) : formatNumber(value));
-const formatCopies = (count: number) => `${count} ${count > 1 ? 'copies' : 'copy'}`;
 const formatObjectKb = (kb: number) => (kb < 1_000 ? `${Number(kb.toPrecision(2))} KB` : `${Number((kb / 1_000).toPrecision(2))} MB`);
 const formatOffBy = (factor: number) => (Number.isFinite(factor) ? `${factor < 1.05 ? '1.0' : factor.toFixed(1)}x` : '-');
 
-interface Step {
-  label: string;
-  part: string;
-  formula: string;
-  result: string;
-  exact?: string;
-  emphasis?: boolean;
-}
-
 export function CapacityLab({ focus }: LabProps<'capacity'>) {
   // The page keys this lab by Concept, so the focus never changes under a mounted lab.
-  const start = focus ? FOCUS_SETUPS[focus] : DEFAULT_SETUP;
-  // Every control lives in one object, so Reset cannot miss one.
+  const start = startOf(focus);
+  // Every control of both views lives in one object, so Reset cannot miss one - not even the view.
   const { setup, setSetup, change } = useLabSetup(start);
+  const reset = () => setSetup(start);
+  // Each view changes only its own keys of the one Setup.
+  const changeSpeed =
+    <K extends keyof SpeedInputs>(key: K) =>
+    (value: SpeedInputs[K]) =>
+      setSetup((current) => ({ ...current, [key]: value }));
+  const changeSize =
+    <K extends keyof SizeSetup>(key: K) =>
+    (value: SizeSetup[K]) =>
+      setSetup((current) => ({ ...current, [key]: value }));
+  const viewSwitch = <SegmentedControl value={setup.view} options={VIEWS} onChange={change('view')} />;
+  return setup.view === 'speed' ? (
+    <CapacitySpeedView inputs={setup} change={changeSpeed} onReset={reset} viewSwitch={viewSwitch} />
+  ) : (
+    <CapacitySizeView setup={setup} change={changeSize} onReset={reset} viewSwitch={viewSwitch} />
+  );
+}
+
+interface SizeViewProps {
+  setup: SizeSetup;
+  change: <K extends keyof SizeSetup>(key: K) => (value: SizeSetup[K]) => void;
+  onReset: () => void;
+  viewSwitch: ReactNode;
+}
+
+function CapacitySizeView({ setup, change, onReset, viewSwitch }: SizeViewProps) {
   const { dau, requestsPerUser, writeShare, objectSizeKb, peakFactor, retentionYears, replicationFactor, rounding } = setup;
 
   const exact = useMemo(() => exactEstimate(setup), [setup]);
@@ -104,96 +107,20 @@ export function CapacityLab({ focus }: LabProps<'capacity'>) {
   const u = est.used;
 
   // Number formatting follows the mode: napkin powers of ten, or the exact figures.
-  const big = (value: number) => (rounding ? formatPowerOfTen(value) : formatCompact(value));
-  const rate = (value: number) => (rounding ? formatPowerOfTen(value) : formatRate(value));
-  const small = (value: number) => (rounding ? formatPowerOfTen(value) : `${Number(value.toPrecision(3))}`);
+  const { big, rate, small } = numberFormats(rounding);
   const orExact = (text: string) => (rounding ? text : undefined);
 
   const scale = scaleOf(est.peakQps);
   const exactScale = scaleOf(exact.peakQps);
-  const writesOverflow = est.peakWriteQps > PRIMARY_WRITE_LIMIT;
+  const writeDecision = writeDecisionOf(est.peakWriteQps);
+  const exactWriteDecision = writeDecisionOf(exact.peakWriteQps);
+  const writesOverflow = writeDecision === 'partition';
   const readWriteRatio = writeShare >= 1 ? 0 : (1 - writeShare) / writeShare;
 
-  const steps: Step[] = [
-    {
-      label: 'Requests per day',
-      part: 'Clients',
-      formula: `${big(u.dau)} DAU x ${small(u.requestsPerUser)} requests/user/day`,
-      result: `${big(est.requestsPerDay)} requests/day`,
-      exact: orExact(formatCompact(exact.requestsPerDay)),
-    },
-    {
-      label: 'Average requests per second',
-      part: 'Clients',
-      formula: `${big(est.requestsPerDay)} / ${rounding ? formatPowerOfTen(u.secondsPerDay) : '86,400'} seconds`,
-      result: `${rate(est.avgQps)} req/sec`,
-      exact: orExact(formatRate(exact.avgQps)),
-      emphasis: true,
-    },
-    {
-      label: 'Peak requests per second',
-      part: 'Load balancer',
-      formula: `${rate(est.avgQps)} x ${small(u.peakFactor)} peak factor`,
-      result: `${rate(est.peakQps)} req/sec`,
-      exact: orExact(formatRate(exact.peakQps)),
-      emphasis: true,
-    },
-    {
-      label: 'App servers',
-      part: 'App tier',
-      formula: `${rate(est.peakQps)} / ${formatNumber(SERVER_CAPACITY)} per server x ${HEADROOM} headroom`,
-      result: `${formatNumber(est.servers)} servers`,
-      exact: orExact(formatNumber(exact.servers)),
-      emphasis: true,
-    },
-    {
-      label: 'Write rate',
-      part: 'Database',
-      formula: `${rate(est.avgQps)} req/sec x ${small(u.writeShare * 100)}% writes`,
-      result: `${rate(est.writeQps)} writes/sec`,
-      exact: orExact(formatRate(exact.writeQps)),
-    },
-    {
-      label: 'Daily storage growth',
-      part: 'Object storage',
-      formula: `${big(est.writesPerDay)} writes/day x ${formatSize(u.objectBytes)}`,
-      result: formatSize(est.dailyBytes),
-      exact: orExact(formatSize(exact.dailyBytes)),
-    },
-    {
-      label: 'Annual storage growth',
-      part: 'Object storage',
-      formula: `${formatSize(est.dailyBytes)} x ${small(u.daysPerYear)} days`,
-      result: formatSize(est.yearlyBytes),
-      exact: orExact(formatSize(exact.yearlyBytes)),
-      emphasis: true,
-    },
-    {
-      label: `Storage after ${retentionYears} year${retentionYears > 1 ? 's' : ''}`,
-      part: 'Object storage',
-      formula: `${formatSize(est.yearlyBytes)} x ${small(u.retentionYears)}`,
-      result: formatSize(est.retainedBytes),
-      exact: orExact(formatSize(exact.retainedBytes)),
-    },
-    {
-      label: 'With replication',
-      part: 'Object storage',
-      formula: `${formatSize(est.retainedBytes)} x ${formatCopies(u.replicationFactor)}`,
-      result: formatSize(est.storedBytes),
-      exact: orExact(formatSize(exact.storedBytes)),
-      emphasis: true,
-    },
-    {
-      label: 'Peak bandwidth',
-      part: 'Load balancer',
-      formula: `${rate(est.peakQps)} req/sec x ${formatSize(u.objectBytes)}`,
-      result: `${formatSize(est.bandwidthBytesPerSec)}/sec`,
-      exact: orExact(`${formatSize(exact.bandwidthBytesPerSec)}/sec`),
-    },
-  ];
+  const steps = useMemo(() => capacitySteps(setup, rounding), [setup, rounding]);
 
   // ---- moving traffic -------------------------------------------------------
-  const [running, setRunning] = useState(true);
+  const [running, setRunning] = useLabRunning();
   const particles = useRef<Particle[]>([]);
   const rerender = useRerender(30);
 
@@ -238,15 +165,16 @@ export function CapacityLab({ focus }: LabProps<'capacity'>) {
 
   return (
     <LabShell
-      title="Capacity Estimation Playground"
+      title="Capacity Estimation Lab"
       description="Turn product numbers into infrastructure numbers, and see each one land on the part of the system it sizes."
       running={running}
-      onToggleRun={() => setRunning((value) => !value)}
+      onRunningChange={setRunning}
       onReset={() => {
         // Back to this Concept's starting setup, not the lab's global default.
-        setSetup(start);
+        onReset();
         particles.current = [];
       }}
+      actions={viewSwitch}
       legend={<CapacityLegend writeShare={writeShare} />}
       insight={
         <Insight>
@@ -254,17 +182,24 @@ export function CapacityLab({ focus }: LabProps<'capacity'>) {
             <>
               On the napkin the peak is {formatPowerOfTen(rough.peakQps)} req/sec; the exact sum gives{' '}
               {formatRate(exact.peakQps)} - off by {formatOffBy(offBy(rough.peakQps, exact.peakQps))}.{' '}
-              {scale === exactScale ? (
+              {sameDecision(rough, exact) ? (
                 <>
-                  Both land in the same category, <strong className="text-ink">{SCALE_LABEL[scale].toLowerCase()}</strong>,
-                  so the rough answer leads to the same design. That is the point of rounding: you trade precision you
-                  did not need for an answer you can get in your head.
+                  Both land at the same scale, <strong className="text-ink">{SCALE_LABEL[scale].toLowerCase()}</strong>,
+                  and both say <strong className="text-ink">{WRITE_DECISION_LABEL[writeDecision].toLowerCase()}</strong>{' '}
+                  for the database, so the rough answer leads to the same design. That is the point of rounding: you
+                  trade precision you did not need for an answer you can get in your head.
                 </>
               ) : (
                 <>
-                  Here they land in different categories ({SCALE_LABEL[scale].toLowerCase()} against{' '}
-                  {SCALE_LABEL[exactScale].toLowerCase()}): the estimate sits near a boundary, which is exactly when to
-                  stop rounding and do the exact arithmetic.
+                  Here they lead to different designs (
+                  {[
+                    scale !== exactScale && `${SCALE_LABEL[scale].toLowerCase()} against ${SCALE_LABEL[exactScale].toLowerCase()}`,
+                    writeDecision !== exactWriteDecision &&
+                      `${WRITE_DECISION_LABEL[writeDecision].toLowerCase()} against ${WRITE_DECISION_LABEL[exactWriteDecision].toLowerCase()}`,
+                  ]
+                    .filter(Boolean)
+                    .join('; ')}
+                  ): the estimate sits near a boundary, which is exactly when to stop rounding and do the exact arithmetic.
                 </>
               )}
             </>
@@ -272,10 +207,10 @@ export function CapacityLab({ focus }: LabProps<'capacity'>) {
             <>
               At {formatRate(exact.peakQps)} peak requests/sec you need about {exact.serversAtPeak} app server
               {exact.serversAtPeak > 1 ? 's' : ''} at {formatNumber(SERVER_CAPACITY)} req/sec each - plus 50% headroom,
-              so call it {exact.servers}. That puts the design in the category{' '}
+              so call it {exact.servers}. That puts the design at the scale{' '}
               <strong className="text-ink">{SCALE_LABEL[exactScale].toLowerCase()}</strong>. Storage grows to{' '}
               {formatSize(exact.storedBytes)} including replication.{' '}
-              {exact.peakWriteQps > PRIMARY_WRITE_LIMIT
+              {exactWriteDecision === 'partition'
                 ? `At ${formatRate(exact.peakWriteQps)} peak writes/sec a single database primary will not absorb the writes - plan for partitioning early.`
                 : `Peak writes of ${formatRate(exact.peakWriteQps)}/sec fit on one primary database; reads scale out with replicas and caching.`}{' '}
               Switch on rounding to see the napkin version of the same estimate.
@@ -286,9 +221,10 @@ export function CapacityLab({ focus }: LabProps<'capacity'>) {
       metrics={
         <>
           <MetricsPanel
+            title="Estimates"
             items={[
               { key: 'avgQps', label: 'Average QPS', value: `${tilde}${rate(est.avgQps)}`, tone: 'brand', hint: 'Requests per second averaged over 24 hours.', sub: orExact(`exact ${formatRate(exact.avgQps)}`) },
-              { key: 'peakQps', label: 'Peak QPS', value: `${tilde}${rate(est.peakQps)}`, tone: 'warn', hint: 'What you must actually provision for.', sub: orExact(`exact ${formatRate(exact.peakQps)}`) },
+              { key: 'peakQps', label: 'Peak QPS', value: `${tilde}${rate(est.peakQps)}`, tone: 'brand', hint: 'What you must actually provision for.', sub: orExact(`exact ${formatRate(exact.peakQps)}`) },
               { key: 'writeQps', label: 'Peak writes/sec', value: `${tilde}${rate(est.peakWriteQps)}`, hint: 'Writes are usually the hard constraint: they all go to the primary.', sub: orExact(`exact ${formatRate(exact.peakWriteQps)}`) },
               {
                 key: 'ratio',
@@ -297,7 +233,16 @@ export function CapacityLab({ focus }: LabProps<'capacity'>) {
                 hint: 'A high ratio means caching and read replicas will help a lot.',
               },
               { key: 'yearly', label: 'Storage/year', value: `${tilde}${formatSize(est.yearlyBytes)}`, hint: 'Before replication.', sub: orExact(`exact ${formatSize(exact.yearlyBytes)}`) },
-              { key: 'bandwidth', label: 'Peak bandwidth', value: `${tilde}${formatSize(est.bandwidthBytesPerSec)}/s`, tone: 'violet', hint: 'Simplified: every request moves one object.', sub: orExact(`exact ${formatSize(exact.bandwidthBytesPerSec)}/s`) },
+              {
+                key: 'bandwidth',
+                label: 'Peak bandwidth',
+                value: `${tilde}${formatMegabytesPerSec(est.bandwidthBytesPerSec)}`,
+                tone: 'violet',
+                hint: 'Simplified: every request moves one object. Links are sold in bits: multiply bytes by 8.',
+                sub: rounding
+                  ? `${formatGigabitsPerSec(est.bandwidthBytesPerSec)}, exact ${formatMegabytesPerSec(exact.bandwidthBytesPerSec)}`
+                  : formatGigabitsPerSec(est.bandwidthBytesPerSec),
+              },
             ]}
           />
 
@@ -311,7 +256,7 @@ export function CapacityLab({ focus }: LabProps<'capacity'>) {
             <ol className="space-y-2">
               {steps.map((step, index) => (
                 <li
-                  key={step.label}
+                  key={step.id}
                   className={cn(
                     'grid gap-2 rounded-xl border px-4 py-3 sm:grid-cols-[190px_1fr_auto] sm:items-center',
                     step.emphasis ? 'border-brand/40 bg-brand/5' : 'border-line',
@@ -335,20 +280,20 @@ export function CapacityLab({ focus }: LabProps<'capacity'>) {
               ))}
             </ol>
 
-            <div className="mt-5 grid gap-3 sm:grid-cols-3">
-              <div className="rounded-xl border border-line bg-elevated p-4">
+            <div className="mt-5 grid gap-4 border-t border-line pt-4 sm:grid-cols-3">
+              <div>
                 <p className="label">App servers needed</p>
                 <p className="metric-value mt-1 text-ink">{formatNumber(est.servers)}</p>
                 <p className="mt-1 text-[11px] text-faint">
                   at {formatNumber(SERVER_CAPACITY)} req/sec each (a simplified planning number), with 50% headroom
                 </p>
               </div>
-              <div className="rounded-xl border border-line bg-elevated p-4">
+              <div>
                 <p className="label">Cache memory (20% hot)</p>
                 <p className="metric-value mt-1 text-ink">{formatSize(est.cacheBytes)}</p>
                 <p className="mt-1 text-[11px] text-faint">20% of one day of new objects - the 80/20 rule of thumb</p>
               </div>
-              <div className="rounded-xl border border-line bg-elevated p-4">
+              <div>
                 <p className="label">{retentionYears}-year storage</p>
                 <p className="metric-value mt-1 text-ink">{formatSize(est.storedBytes)}</p>
                 <p className="mt-1 text-[11px] text-faint">including replication ({formatCopies(u.replicationFactor)})</p>
@@ -359,14 +304,12 @@ export function CapacityLab({ focus }: LabProps<'capacity'>) {
       }
       controls={
         <>
-          <div className="rounded-xl border border-line bg-elevated p-3">
-            <Toggle
-              label="Round to powers of ten"
-              checked={rounding}
-              onChange={change('rounding')}
-              description="Napkin math: users, requests, seconds and bytes become 10^n; small factors keep one figure."
-            />
-          </div>
+          <Toggle
+            label="Round to powers of ten"
+            checked={rounding}
+            onChange={change('rounding')}
+            description="Napkin math: users, requests, seconds and bytes become 10^n; small factors keep one figure."
+          />
           <Slider
             label="Daily active users"
             value={Math.log10(dau)}
@@ -414,7 +357,6 @@ export function CapacityLab({ focus }: LabProps<'capacity'>) {
             max={20}
             onChange={change('peakFactor')}
             format={(value) => `${value}x average`}
-            tone="warn"
             hint="Traffic is never flat. 2-10x is typical depending on the product."
           />
           <Slider
@@ -443,8 +385,9 @@ export function CapacityLab({ focus }: LabProps<'capacity'>) {
           <NodeStatRow label="Average" value={`${tilde}${rate(est.avgQps)}/s`} />
         </ArchNode>
         <ArchNode kind="load-balancer" title="Load balancer" subtitle="pair, sees all traffic" placed={LAYOUT.lb}>
-          <NodeStatRow label="Peak" value={`${tilde}${rate(est.peakQps)} req/s`} tone="text-warn" />
-          <NodeStatRow label="Bandwidth" value={`${tilde}${formatSize(est.bandwidthBytesPerSec)}/s`} tone="text-violet" />
+          <NodeStatRow label="Peak" value={`${tilde}${rate(est.peakQps)} req/s`} />
+          <NodeStatRow label="Bandwidth" value={`${tilde}${formatMegabytesPerSec(est.bandwidthBytesPerSec)}`} tone="text-violet" />
+          <NodeStatRow label="In bits" value={`${tilde}${formatGigabitsPerSec(est.bandwidthBytesPerSec)}`} tone="text-violet" />
         </ArchNode>
         <ArchNode
           kind="server"
@@ -470,7 +413,7 @@ export function CapacityLab({ focus }: LabProps<'capacity'>) {
           placed={LAYOUT.db}
           alert={writesOverflow}
           status={writesOverflow ? 'degraded' : 'healthy'}
-          statusLabel={writesOverflow ? 'Partition the writes' : 'One primary is enough'}
+          statusLabel={WRITE_DECISION_LABEL[writeDecision]}
         >
           <NodeStatRow label="Peak writes" value={`${tilde}${rate(est.peakWriteQps)}/s`} tone={writesOverflow ? 'text-warn' : 'text-ink'} />
           <NodeStatRow label="Peak reads" value={`${tilde}${rate(est.peakReadQps)}/s`} />
@@ -487,7 +430,7 @@ export function CapacityLab({ focus }: LabProps<'capacity'>) {
         </ArchNode>
       </DiagramCanvas>
       <p className="border-t border-line px-4 py-2 text-[11px] text-faint">
-        Category: <span className="font-medium text-ink">{SCALE_LABEL[scale]}</span>. Simplified: every request reads or
+        Scale: <span className="font-medium text-ink">{SCALE_LABEL[scale]}</span>. Simplified: every request reads or
         writes one row in the database and one object in object storage; 1,000 req/sec per server and 10k writes/sec per
         primary are planning numbers, not measurements.
       </p>
@@ -518,11 +461,13 @@ function RoughVersusExact({ rough, exact }: { rough: Estimate; exact: Estimate }
     { label: 'App servers', rough: formatNumber(rough.servers), exact: formatNumber(exact.servers), factor: offBy(rough.servers, exact.servers) },
     { label: 'Peak writes/sec', rough: formatPowerOfTen(rough.peakWriteQps), exact: formatRate(exact.peakWriteQps), factor: offBy(rough.peakWriteQps, exact.peakWriteQps) },
     { label: 'Stored, with copies', rough: formatSize(rough.storedBytes), exact: formatSize(exact.storedBytes), factor: offBy(rough.storedBytes, exact.storedBytes) },
-    { label: 'Peak bandwidth', rough: `${formatSize(rough.bandwidthBytesPerSec)}/s`, exact: `${formatSize(exact.bandwidthBytesPerSec)}/s`, factor: offBy(rough.bandwidthBytesPerSec, exact.bandwidthBytesPerSec) },
+    { label: 'Peak bandwidth', rough: formatMegabytesPerSec(rough.bandwidthBytesPerSec), exact: formatMegabytesPerSec(exact.bandwidthBytesPerSec), factor: offBy(rough.bandwidthBytesPerSec, exact.bandwidthBytesPerSec) },
   ];
-  const roughScale = scaleOf(rough.peakQps);
-  const exactScale = scaleOf(exact.peakQps);
-  const same = roughScale === exactScale;
+  const decisions = [
+    { label: 'Scale', rough: SCALE_LABEL[scaleOf(rough.peakQps)], exact: SCALE_LABEL[scaleOf(exact.peakQps)] },
+    { label: 'Database', rough: WRITE_DECISION_LABEL[writeDecisionOf(rough.peakWriteQps)], exact: WRITE_DECISION_LABEL[writeDecisionOf(exact.peakWriteQps)] },
+  ];
+  const same = sameDecision(rough, exact);
   return (
     <div className="card p-5">
       <div className="mb-3 flex items-center gap-2">
@@ -550,17 +495,30 @@ function RoughVersusExact({ rough, exact }: { rough: Estimate; exact: Estimate }
                 </td>
               </tr>
             ))}
+            {decisions.map((row) => (
+              <tr key={row.label} className="border-t border-line">
+                <td className="py-1.5 pr-3 text-muted">{row.label}</td>
+                <td className="py-1.5 pr-3 text-ink">{row.rough}</td>
+                <td className="py-1.5 pr-3 text-muted">{row.exact}</td>
+                <td className={cn('py-1.5 font-mono', row.rough === row.exact ? 'text-ok' : 'text-warn')}>
+                  {row.rough === row.exact ? 'same' : 'different'}
+                </td>
+              </tr>
+            ))}
             <tr className="border-t border-line">
-              <td className="py-1.5 pr-3 text-muted">Category</td>
-              <td className="py-1.5 pr-3 text-ink">{SCALE_LABEL[roughScale]}</td>
-              <td className="py-1.5 pr-3 text-muted">{SCALE_LABEL[exactScale]}</td>
-              <td className={cn('py-1.5 font-mono', same ? 'text-ok' : 'text-warn')}>{same ? 'same decision' : 'different'}</td>
+              <td className="py-1.5 pr-3 font-medium text-ink" colSpan={3}>
+                Design
+              </td>
+              <td className={cn('py-1.5 font-mono font-semibold', same ? 'text-ok' : 'text-warn')}>
+                {same ? 'same decision' : 'different decision'}
+              </td>
             </tr>
           </tbody>
         </table>
       </div>
       <p className="mt-3 text-[11px] text-faint">
-        Within about 3x (half an order of magnitude) counts as the same order. The category is what the estimate decides.
+        Within about 3x (half an order of magnitude) counts as the same order. The scale and the database decision are
+        what the estimate decides; the design is the same only when both match.
       </p>
     </div>
   );

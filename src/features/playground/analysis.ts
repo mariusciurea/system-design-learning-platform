@@ -12,6 +12,8 @@ export interface AnalysisResult {
   cost: 'Low' | 'Medium' | 'High';
   /** Requests per second that never reach a working component. */
   dropped: number;
+  /** False while nothing is wired: there is no architecture to score yet, only loose boxes. */
+  scored: boolean;
 }
 
 type PlaygroundNode = Node<PlaygroundNodeData>;
@@ -81,7 +83,7 @@ export function analyze(nodes: PlaygroundNode[], edges: Edge[], traffic: number)
   const cost =
     nodes.length + inventory.servers > 16 ? 'High' : nodes.length > 8 || inventory.databases > 2 ? 'Medium' : 'Low';
 
-  return { load, bottlenecks, risks, scores, complexity, cost, dropped };
+  return { load, bottlenecks, risks, scores, complexity, cost, dropped, scored: inventory.anyWired };
 }
 
 /**
@@ -97,14 +99,26 @@ function emptyCanvasResult(): AnalysisResult {
         id: 'empty',
         severity: 'low',
         message: 'The canvas is empty, so there is nothing to analyze yet.',
-        fix: 'Add a Client and a Server from the palette and connect them, or load a preset.',
+        fix: 'Add a Client and a Server from Components and connect them, or load a preset.',
       },
     ],
     scores: { scalability: 0, availability: 0, performance: 0 },
     complexity: 'Low',
     cost: 'Low',
     dropped: 0,
+    scored: false,
   };
+}
+
+/**
+ * The clients the traffic enters through. A client with no wire out sends nowhere, so it takes no share:
+ * otherwise adding a second, unwired Client silently halved the load on the rest of the system.
+ */
+export function trafficSources(nodes: PlaygroundNode[], edges: Edge[]) {
+  const clients = nodes.filter((node) => node.data.kind === 'client');
+  const sending = new Set(edges.map((edge) => edge.source));
+  const wired = clients.filter((node) => sending.has(node.id));
+  return wired.length > 0 ? wired : clients;
 }
 
 /**
@@ -123,7 +137,7 @@ function propagateLoad(nodes: PlaygroundNode[], edges: Edge[], traffic: number) 
   const load: Record<string, number> = Object.fromEntries(nodes.map((node) => [node.id, 0]));
   let dropped = 0;
 
-  const clients = nodes.filter((node) => node.data.kind === 'client');
+  const clients = trafficSources(nodes, edges);
   const queue: { id: string; amount: number; depth: number; path: string[] }[] = clients.map((node) => ({
     id: node.id,
     amount: traffic / Math.max(clients.length, 1),
@@ -303,7 +317,10 @@ function detectRisks(inventory: Inventory, bottleneckCount: number): Risk[] {
     risks.push({
       id: 'bottleneck',
       severity: 'high',
-      message: `${bottleneckCount} component(s) receiving more traffic than they can serve.`,
+      message:
+        bottleneckCount === 1
+          ? 'One component is receiving more traffic than it can serve.'
+          : `${bottleneckCount} components are receiving more traffic than they can serve.`,
       fix: 'Add capacity, cache in front of them, or move the work to a queue.',
     });
   }

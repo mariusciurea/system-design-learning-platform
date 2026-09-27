@@ -32,7 +32,12 @@ export function RequestInspector({ request, onClose }: RequestInspectorProps) {
           <p className="label">Request inspector</p>
           <p className="mt-0.5 font-mono text-sm font-semibold text-ink">#{request.id}</p>
         </div>
-        <button type="button" onClick={onClose} aria-label="Close inspector" className="text-faint hover:text-ink">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close inspector"
+          className="-m-1.5 flex shrink-0 items-center justify-center rounded-lg p-1.5 text-faint transition-colors hover:bg-elevated hover:text-ink"
+        >
           <X className="h-4 w-4" />
         </button>
       </div>

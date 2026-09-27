@@ -69,7 +69,7 @@ const FALLBACK: ThemeColors = {
   line: '#1f2b42',
   ink: '#e2e8f0',
   muted: '#94a3b8',
-  faint: '#64748b',
+  faint: '#7a89a0',
   canvas: '#070b14',
   surface: '#0d1422',
   elevated: '#121a2b',

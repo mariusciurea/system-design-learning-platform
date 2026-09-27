@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef } from 'react';
 import { Eraser, Rocket } from 'lucide-react';
 import {
   ArchNode,
@@ -47,6 +47,7 @@ import {
   type EdgeFootprint,
   type Entry,
 } from './cdnModel';
+import { useLabRunning } from '@/hooks/useLabRunning';
 
 type EdgeId = 'eu-edge' | 'us-edge' | 'ap-edge';
 
@@ -74,13 +75,13 @@ const EDGES: { id: EdgeId; name: string; originKm: number; purgeDelayMs: number 
 ];
 
 const LAYOUT: Layout = {
-  origin: { x: 380, y: 12, w: 200, h: 126 },
-  'eu-edge': { x: 60, y: 186, w: 190, h: 140 },
-  'us-edge': { x: 385, y: 186, w: 190, h: 140 },
-  'ap-edge': { x: 710, y: 186, w: 190, h: 140 },
-  'eu-users': { x: 75, y: 396, w: 160, h: 86 },
-  'us-users': { x: 400, y: 396, w: 160, h: 86 },
-  'ap-users': { x: 725, y: 396, w: 160, h: 86 },
+  origin: { x: 380, y: 12, w: 200, h: 151 },
+  'eu-edge': { x: 60, y: 211, w: 190, h: 173 },
+  'us-edge': { x: 385, y: 211, w: 190, h: 173 },
+  'ap-edge': { x: 710, y: 211, w: 190, h: 173 },
+  'eu-users': { x: 75, y: 440, w: 160, h: 94 },
+  'us-users': { x: 400, y: 440, w: 160, h: 94 },
+  'ap-users': { x: 725, y: 440, w: 160, h: 94 },
 };
 
 /** Requests animated per second, independent of how much traffic is counted. */
@@ -178,7 +179,7 @@ export function CdnLab({ focus }: LabProps<'cdn'>) {
   // Every control lives in one object, so Reset cannot miss one.
   const { setup, setSetup, change } = useLabSetup(start);
   const { cdnEnabled, traffic, edges: footprint, cacheControl, ttlSec, cacheKey } = setup;
-  const [running, setRunning] = useState(true);
+  const [running, setRunning] = useLabRunning();
   const state = useRef<State>(createState());
   const rerender = useRerender(30);
   const { events, log, clear } = useEventLog();
@@ -389,15 +390,15 @@ export function CdnLab({ focus }: LabProps<'cdn'>) {
     </>
   ) : cacheControl === 'no-store' ? (
     <>
-      private, no-store forbids a shared cache to keep a copy, so every request goes on to the origin and the hit rate is
-      0%. Misses are still a little faster than with no CDN, because the edge keeps warm connections to the origin - but
-      the origin carries all the traffic. Right for per-user data, wasteful for public files.
+      The header private, no-store forbids a shared cache to keep a copy, so every request goes on to the origin and
+      the hit rate is 0%. Misses are still a little faster than with no CDN, because the edge keeps warm connections to
+      the origin - but the origin carries all the traffic. Right for per-user data, wasteful for public files.
     </>
   ) : cacheControl === 'no-cache' ? (
     <>
-      no-cache does not mean do not cache: the edge keeps the copy but asks the origin before every use. Most answers
-      are a small 304 Not Modified ({formatNumber(revalidateQps)} per second), yet each still costs a trip to the origin
-      and the origin sees every request. Right for HTML, far too cautious for hashed files.
+      The header no-cache does not mean do not cache: the edge keeps the copy but asks the origin before every use.
+      Most answers are a small 304 Not Modified ({formatNumber(revalidateQps)} per second), yet each still costs a trip
+      to the origin and the origin sees every request. Right for HTML, far too cautious for hashed files.
     </>
   ) : cacheKey === 'cookie' ? (
     <>
@@ -436,7 +437,7 @@ export function CdnLab({ focus }: LabProps<'cdn'>) {
       title="CDN Lab"
       description="Three regions, one origin, and an edge cache in each region. Turn the CDN on to beat distance, then change the cache policy, deploy and purge to see what decides the hit rate."
       running={running}
-      onToggleRun={() => setRunning((value) => !value)}
+      onRunningChange={setRunning}
       onReset={reset}
       legend={
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
@@ -593,7 +594,7 @@ export function CdnLab({ focus }: LabProps<'cdn'>) {
             onChange={change('cacheKey')}
             hint="What makes two requests count as the same object. Everything added here multiplies the copies."
           />
-          <div className="rounded-xl border border-line bg-elevated p-3">
+          <div className="border-t border-line pt-4">
             <p className="label mb-2">Origin load</p>
             <Meter value={totalQps > 0 ? Math.min(1, originQps / totalQps) : 0} label="Share reaching origin" tone="violet" />
             <p className="mt-2 text-[11px] text-faint">
@@ -603,7 +604,7 @@ export function CdnLab({ focus }: LabProps<'cdn'>) {
         </>
       }
     >
-      <DiagramCanvas layout={LAYOUT} edges={edges} particles={particleViews} height={500} className="bg-canvas">
+      <DiagramCanvas layout={LAYOUT} edges={edges} particles={particleViews} height={548} className="bg-canvas">
         <ArchNode kind="server" title="Origin Server" subtitle="us-east" placed={LAYOUT.origin}>
           <NodeStatRow label="Incoming" value={`${formatNumber(originQps)}/s`} />
           <NodeStatRow label="Offloaded" value={formatPercent(offload)} tone={offload > 0.8 ? 'text-ok' : 'text-warn'} />
@@ -639,7 +640,13 @@ export function CdnLab({ focus }: LabProps<'cdn'>) {
               status={!inUse ? 'down' : purging.has(edge.id) ? 'degraded' : 'healthy'}
               statusLabel={!inUse ? 'Off' : purging.has(edge.id) ? 'Purge pending' : undefined}
             >
-              <NodeStatRow label="Hit rate" value={inUse ? formatPercent(edgeHitRate) : '-'} tone="text-ok" />
+              <NodeStatRow
+                label="Hit rate"
+                value={inUse ? formatPercent(edgeHitRate) : '-'}
+                tone={
+                  !inUse ? 'text-ink' : edgeHitRate > 0.8 ? 'text-ok' : edgeHitRate > 0.5 ? 'text-warn' : 'text-danger'
+                }
+              />
               <NodeStatRow label="Edge RTT" value={formatLatency(rtt(nearest?.edgeKm ?? 0))} />
               <NodeStatRow label="Stored" value={inUse ? formatNumber(stats.store.size) : '-'} />
               <NodeStatRow

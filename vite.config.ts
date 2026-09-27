@@ -24,7 +24,6 @@ export default defineConfig({
       'react-dom',
       'react-dom/client',
       'react-router-dom',
-      'framer-motion',
       'lucide-react',
       'reactflow',
       // The sign-in SDK, reached only through the dynamic import in AccountProvider.

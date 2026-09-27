@@ -24,6 +24,7 @@ import { useRerender } from '@/hooks/useRerender';
 import { percentile, sampleArrivals } from '@/utils/math';
 import { formatLatency, formatPercent } from '@/utils/format';
 import type { NodeStatus } from '@/types';
+import { useLabRunning } from '@/hooks/useLabRunning';
 
 /*
  * A simplified model of a function platform (shaped on AWS Lambda) next to one
@@ -147,7 +148,7 @@ function rateAt(setup: Setup, seconds: number) {
 const fnKey = (instance: Instance) => `fn${instance.id}`;
 
 function slotPlace(slot: number) {
-  return { x: 392 + (slot % 3) * 128, y: 12 + Math.floor(slot / 3) * 92, w: 118, h: 82 };
+  return { x: 384 + (slot % 3) * 128, y: 12 + Math.floor(slot / 3) * 92, w: 118, h: 90 };
 }
 
 const pushWindow = <T,>(list: T[], item: T) => {
@@ -163,7 +164,7 @@ const formatCost = (value: number | null) => (value === null ? '-' : value >= 10
  * with the same events also priced on one always-on server.
  */
 export function ServerlessLab() {
-  const [running, setRunning] = useState(true);
+  const [running, setRunning] = useLabRunning();
   const [setup, setSetup] = useState<Setup>(DEFAULT_SETUP);
   const state = useRef<SimState>(createState());
   const rerender = useRerender(30);
@@ -426,13 +427,13 @@ export function ServerlessLab() {
   const view = setup.view;
   const layout: Layout = {
     events: { x: 16, y: 146, w: 136, h: 84 },
-    db: { x: 806, y: 126, w: 140, h: 124 },
+    db: { x: 780, y: 126, w: 166, h: 124 },
   };
   if (view === 'functions') {
-    layout.platform = { x: 182, y: 130, w: 180, h: 116 };
+    layout.platform = { x: 172, y: 124, w: 190, h: 128 };
     for (const instance of sim.instances) layout[fnKey(instance)] = slotPlace(instance.slot);
   } else {
-    layout.server = { x: 400, y: 112, w: 280, h: 152 };
+    layout.server = { x: 400, y: 108, w: 280, h: 160 };
   }
 
   const edges: DiagramEdge[] =
@@ -546,9 +547,17 @@ export function ServerlessLab() {
       title="Serverless Lab"
       description="Events reach a function platform that starts an instance per concurrent request and reclaims idle ones. Change the traffic shape and watch scale to zero, cold starts, the concurrency limit and the cost against an always-on server."
       running={running}
-      onToggleRun={() => setRunning((value) => !value)}
+      onRunningChange={setRunning}
       onReset={reset}
-      legend={<ParticleLegend outcomes={['success', 'warning', 'failure']} />}
+      legend={
+        <ParticleLegend
+          outcomes={[
+            { outcome: 'success', label: 'Warm request' },
+            { outcome: 'warning', label: 'Cold start or queued' },
+            { outcome: 'failure', label: 'Throttled or refused' },
+          ]}
+        />
+      }
       events={events}
       insight={<Insight>{insight}</Insight>}
       metrics={
@@ -604,7 +613,7 @@ export function ServerlessLab() {
 
           <div className="card p-4">
             <p className="label mb-3">Same events, two options</p>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2 sm:gap-6">
               {[
                 {
                   name: 'Functions',
@@ -623,12 +632,15 @@ export function ServerlessLab() {
                   lower: cheaper === 'server',
                 },
               ].map((option) => (
-                <div key={option.name} className="rounded-xl border border-line p-3">
+                <div key={option.name}>
                   <p className="text-sm font-semibold text-ink">{option.name}</p>
                   <dl className="mt-2 space-y-1 font-mono text-xs">
                     <div className="flex justify-between gap-2">
                       <dt className="text-faint">Cost / 1,000 events</dt>
-                      <dd className={option.lower ? 'text-ok' : 'text-ink'}>{formatCost(option.per1000)}</dd>
+                      <dd className={option.lower ? 'text-ok' : 'text-ink'}>
+                        {formatCost(option.per1000)}
+                        {option.lower ? ' (lower)' : ''}
+                      </dd>
                     </div>
                     <div className="flex justify-between gap-2">
                       <dt className="text-faint">Cost so far</dt>
@@ -666,8 +678,8 @@ export function ServerlessLab() {
             <LiveChart
               data={points}
               series={[
-                { key: 'fnCost', label: 'Functions', color: 'warn' },
-                { key: 'serverCost', label: 'Always-on', color: 'ok', dashed: true },
+                { key: 'fnCost', label: 'Functions', color: 'brand' },
+                { key: 'serverCost', label: 'Always-on', color: 'violet', dashed: true },
               ]}
               variant="line"
               height={140}
@@ -746,7 +758,7 @@ export function ServerlessLab() {
             />
             <p className="mt-2 text-[11px] text-faint">Both options get the same events and are priced side by side.</p>
           </div>
-          <div className="rounded-xl border border-line bg-elevated p-3">
+          <div className="border-t border-line pt-4">
             <p className="label mb-2 flex items-center gap-1.5">
               <Info className="h-3.5 w-3.5" />
               Simplified
@@ -792,13 +804,13 @@ export function ServerlessLab() {
                   <NodeStatRow
                     label="Type"
                     value={instance.provisioned ? 'provisioned' : 'on demand'}
-                    tone={instance.provisioned ? 'text-ok' : 'text-muted'}
+                    tone={instance.provisioned ? 'text-brand' : 'text-muted'}
                   />
                 </ArchNode>
               );
             })}
             {sim.instances.length === 0 ? (
-              <div className="absolute left-[392px] top-[150px] w-[374px] rounded-xl border border-dashed border-line p-4 text-center text-xs text-faint">
+              <div className="absolute left-[384px] top-[150px] w-[374px] rounded-xl border border-dashed border-line p-4 text-center text-xs text-faint">
                 No instances: scaled to zero
               </div>
             ) : null}

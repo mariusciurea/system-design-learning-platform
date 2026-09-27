@@ -4,7 +4,7 @@ import { NavLink, matchPath, useLocation } from 'react-router-dom';
 import { Check, ChevronDown, FlaskConical, Shapes, BookMarked, Route, Columns2, Waypoints } from 'lucide-react';
 import { CategoryIcon } from '@/data/categoryIcons';
 import { cn } from '@/utils/cn';
-import { CATEGORIES } from '@/data/categories';
+import { CATEGORIES, categoryStyle } from '@/data/categories';
 import { CONCEPTS_BY_CATEGORY, getConcept } from '@/data/concepts';
 import { useProgress } from '@/app/providers/ProgressProvider';
 import type { Category, CategoryId, Difficulty } from '@/types';
@@ -43,10 +43,28 @@ interface SidebarProps {
 export function Sidebar({ difficulty, folded = false, onUnfold, onNavigate }: SidebarProps) {
   const { completed, categoryProgress } = useProgress();
   const [open, setOpen] = useState<Record<string, boolean>>({ 'getting-started': true, scaling: true });
+  const { pathname } = useLocation();
+  const activeCategory = useActiveCategory();
   const toolsTitleId = useId();
   const navRef = useRef<HTMLElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   /** Category picked from the strip, scrolled into view once the full sidebar is back. */
   const revealRef = useRef<CategoryId | null>(null);
+
+  // The current Concept stays in sight: its Category opens (below) and the list scrolls to it. Only the
+  // part that scrolls moves - scrollIntoView could also scroll the page or the closed drawer's parents.
+  useEffect(() => {
+    const list = listRef.current;
+    const link = list?.querySelector<HTMLElement>('a[aria-current="page"]');
+    if (!list || !link) return;
+    // The list scrolls on its own under pinned Tools; in the drawer and on a short screen the whole nav does.
+    const scroller = getComputedStyle(list).overflowY === 'visible' ? navRef.current : list;
+    if (!scroller) return;
+    const box = scroller.getBoundingClientRect();
+    const row = link.getBoundingClientRect();
+    // Out of sight, it moves to the middle, so the Concepts around it show too.
+    if (row.top < box.top || row.bottom > box.bottom) scroller.scrollTop += row.top + row.height / 2 - (box.top + box.height / 2);
+  }, [pathname, folded]);
 
   useEffect(() => {
     const id = revealRef.current;
@@ -71,9 +89,14 @@ export function Sidebar({ difficulty, folded = false, onUnfold, onNavigate }: Si
   if (folded) return <SidebarStrip categories={visibleCategories} onOpenCategory={openAt} />;
 
   return (
-    <nav ref={navRef} aria-label="Concept navigation" className="flex h-full flex-col short:overflow-y-auto">
-      {/* The Tools stay pinned; only the Category list below the divider scrolls. On a short screen
-          (a phone held sideways) pinned Tools would leave the Categories no room, so it all scrolls. */}
+    <nav
+      ref={navRef}
+      aria-label="Concept navigation"
+      className="flex h-full flex-col max-lg:overflow-y-auto max-lg:overscroll-contain short:overflow-y-auto"
+    >
+      {/* In the desktop column the Tools stay pinned and only the Category list below the divider
+          scrolls. In the drawer (a phone or tablet) and on a short screen, pinned Tools would leave
+          the Categories a small box to scroll in, so the whole menu scrolls as one. */}
       <div role="group" aria-labelledby={toolsTitleId} className="shrink-0 space-y-0.5 border-b border-line px-3 pb-3 pt-4">
         <p id={toolsTitleId} className="label px-3 pb-1">
           Tools
@@ -96,21 +119,22 @@ export function Sidebar({ difficulty, folded = false, onUnfold, onNavigate }: Si
         ))}
       </div>
 
-      <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-8 pt-3 short:flex-none short:overflow-visible">
+      <div ref={listRef} className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-8 pt-3 max-lg:flex-none max-lg:overflow-visible short:flex-none short:overflow-visible">
         {visibleCategories.map((category) => {
           const concepts = conceptsIn(category.id);
-          const isOpen = open[category.id] ?? false;
+          // Until the Learner opens or closes it, a Category is open when the current page is in it.
+          const isOpen = open[category.id] ?? category.id === activeCategory;
           const progress = categoryProgress(category.id);
 
           return (
-            <div key={category.id} data-category={category.id}>
+            <div key={category.id} data-category={category.id} style={categoryStyle(category.id)}>
               <button
                 type="button"
                 aria-expanded={isOpen}
                 onClick={() => setOpen((current) => ({ ...current, [category.id]: !isOpen }))}
                 className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium text-ink transition-colors hover:bg-elevated"
               >
-                <CategoryIcon name={category.icon} className="h-4 w-4 shrink-0 text-faint" />
+                <CategoryIcon name={category.icon} className="h-4 w-4 shrink-0 text-cat" />
                 <span className="flex-1 truncate">{category.title}</span>
                 <span className="font-mono text-[11px] tabular-nums text-faint">
                   {progress.done}/{progress.total}
@@ -119,7 +143,7 @@ export function Sidebar({ difficulty, folded = false, onUnfold, onNavigate }: Si
               </button>
 
               {isOpen ? (
-                <ul className="ml-[22px] space-y-0.5 border-l border-line pl-2">
+                <ul className="ml-[22px] space-y-0.5 border-l border-cat/30 pl-2">
                   {concepts.map((concept) => (
                     <li key={concept.slug}>
                       <NavLink
@@ -135,13 +159,12 @@ export function Sidebar({ difficulty, folded = false, onUnfold, onNavigate }: Si
                         <span
                           className={cn('h-1.5 w-1.5 shrink-0 rounded-full', DIFFICULTY_DOT[concept.difficulty])}
                           title={concept.difficulty}
+                          aria-hidden
                         />
                         <span className="flex-1 truncate">{concept.title}</span>
-                        {concept.lab ? (
-                          <FlaskConical className="h-3 w-3 shrink-0 text-brand" aria-label="Has an interactive lab" />
-                        ) : null}
+                        <span className="sr-only">, {concept.difficulty}</span>
                         {completed[concept.slug] ? (
-                          <Check className="h-3 w-3 shrink-0 text-ok" aria-label="Completed" />
+                          <Check className="h-3 w-3 shrink-0 text-ok" aria-label="Done" />
                         ) : null}
                       </NavLink>
                     </li>
@@ -233,7 +256,8 @@ function SidebarStrip({
             aria-current={isActive ? 'page' : undefined}
             {...tipProps(`${category.title} ${progress.done}/${progress.total}`)}
             onClick={() => onOpenCategory(category.id)}
-            className={cn(STRIP_ITEM, isActive ? STRIP_ACTIVE : 'text-faint hover:bg-elevated hover:text-ink')}
+            style={categoryStyle(category.id)}
+            className={cn(STRIP_ITEM, isActive ? STRIP_ACTIVE : 'text-cat hover:bg-cat/10')}
           >
             <CategoryIcon name={category.icon} className="h-4 w-4" />
           </button>

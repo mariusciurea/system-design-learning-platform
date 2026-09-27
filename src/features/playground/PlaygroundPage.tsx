@@ -1,9 +1,10 @@
-import { useCallback, useMemo, useRef, useState, type DragEvent } from 'react';
+import { useCallback, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
 import ReactFlow, {
   addEdge,
   Background,
   BackgroundVariant,
   MiniMap,
+  Panel,
   ReactFlowProvider,
   useEdgesState,
   useNodesState,
@@ -23,7 +24,7 @@ import type { NodeKind, NodeStatus } from '@/types';
 import { withAlpha } from '@/utils/color';
 import { NODE_SIZE, nodeTypes, type PlaygroundNodeData } from './nodes';
 import { edgeTypes } from './edges';
-import { analyze } from './analysis';
+import { analyze, trafficSources } from './analysis';
 import { makeNode, PRESETS } from './presets';
 import { BottomSheet } from './BottomSheet';
 import { CanvasToolbar, ToolbarButton } from './CanvasToolbar';
@@ -36,12 +37,58 @@ import { useTapConnect } from './useTapConnect';
 
 /** The preset shown on first load; the select, the canvas and Reset all read this. */
 const DEFAULT_PRESET = 'scaled';
+/** The smallest preset that runs, offered on an empty canvas. */
+const STARTER_PRESET = PRESETS.find((item) => item.id === 'basic') ?? PRESETS[0];
 /** Never zoom in past 1:1, so a three node preset does not fill the screen with one card. */
 const FIT_VIEW = { padding: 0.2, maxZoom: 1 };
 /** Enough to find a node in a diagram that has outgrown the screen, small enough to stay out of the way. */
 const MINIMAP_SIZE = { width: 160, height: 100 };
 /** How far a new node steps aside when the view center already holds one. */
 const STACK_OFFSET = 28;
+/** Room kept around a new card, so it lands beside the others instead of on top of them. */
+const CARD_GAP = 24;
+/** How far, in card sizes, a new card may move from the view center to find a free spot (in half-card steps). */
+const FREE_SPOT_REACH = 3;
+
+/**
+ * The spot nearest to `start` where a new card overlaps no card already on the canvas. Without it a
+ * card added to the middle of a preset landed on the load balancer and hid it. When the whole
+ * neighbourhood is full, it falls back to stepping diagonally off any card in the same place.
+ */
+function freeSpot(start: { x: number; y: number }, nodes: Node<PlaygroundNodeData>[]) {
+  const boxes = nodes.map((node) => ({
+    x: node.position.x,
+    y: node.position.y,
+    width: node.width ?? NODE_SIZE.width,
+    height: node.height ?? NODE_SIZE.height,
+  }));
+  const clear = (x: number, y: number) =>
+    boxes.every(
+      (box) =>
+        x + NODE_SIZE.width + CARD_GAP <= box.x ||
+        box.x + box.width + CARD_GAP <= x ||
+        y + NODE_SIZE.height + CARD_GAP <= box.y ||
+        box.y + box.height + CARD_GAP <= y,
+    );
+  const stepX = (NODE_SIZE.width + CARD_GAP) / 2;
+  const stepY = (NODE_SIZE.height + CARD_GAP) / 2;
+  const candidates: { x: number; y: number; distance: number }[] = [];
+  for (let i = -FREE_SPOT_REACH * 2; i <= FREE_SPOT_REACH * 2; i += 1) {
+    for (let j = -FREE_SPOT_REACH * 2; j <= FREE_SPOT_REACH * 2; j += 1) {
+      candidates.push({ x: start.x + i * stepX, y: start.y + j * stepY, distance: Math.hypot(i * stepX, j * stepY) });
+    }
+  }
+  candidates.sort((a, b) => a.distance - b.distance);
+  const found = candidates.find((point) => clear(point.x, point.y));
+  if (found) return { x: found.x, y: found.y };
+
+  const taken = (x: number, y: number) => boxes.some((box) => Math.abs(box.x - x) < 12 && Math.abs(box.y - y) < 12);
+  let point = start;
+  for (let step = 0; step < 20 && taken(point.x, point.y); step += 1) {
+    point = { x: point.x + STACK_OFFSET, y: point.y + STACK_OFFSET };
+  }
+  return point;
+}
 
 type Sheet = 'palette' | 'inspector';
 
@@ -51,6 +98,9 @@ const MINIMAP_TONE: Record<NodeStatus, 'ok' | 'warn' | 'danger' | 'info'> = {
   degraded: 'warn',
   down: 'danger',
   starting: 'info',
+  overloaded: 'danger',
+  // The Playground never sets it; the Record needs every status.
+  idle: 'info',
 };
 
 const newEdge = (connection: Connection) => ({
@@ -125,11 +175,11 @@ function PlaygroundCanvas() {
     },
   }));
 
-  const clientCount = nodes.filter((node) => node.data.kind === 'client').length;
+  const sourceCount = trafficSources(nodes, edges).length;
   const viewEdges = edges.map((edge) => {
     // Clients are traffic sources and carry no load of their own; their share of the traffic is what leaves them.
     const sourceIsClient = nodes.find((node) => node.id === edge.source)?.data.kind === 'client';
-    const sourceLoad = sourceIsClient ? traffic / Math.max(clientCount, 1) : (analysis.load[edge.source] ?? traffic);
+    const sourceLoad = sourceIsClient ? traffic / Math.max(sourceCount, 1) : (analysis.load[edge.source] ?? traffic);
     const targetDown = nodes.find((node) => node.id === edge.target)?.data.status === 'down';
     const targetBottleneck = analysis.bottlenecks.includes(edge.target);
     return {
@@ -163,16 +213,8 @@ function PlaygroundCanvas() {
     (kind: NodeKind, position?: { x: number; y: number }) => {
       const start = position ?? viewCenter();
       const node = makeNode(kind, start.x, start.y);
-      setNodes((current) => {
-        // Two taps on the same item would stack the cards exactly; step the new one aside instead.
-        const taken = (x: number, y: number) =>
-          current.some((item) => Math.abs(item.position.x - x) < 12 && Math.abs(item.position.y - y) < 12);
-        let point = start;
-        for (let step = 0; step < 20 && taken(point.x, point.y); step += 1) {
-          point = { x: point.x + STACK_OFFSET, y: point.y + STACK_OFFSET };
-        }
-        return [...current, { ...node, position: point }];
-      });
+      // A drop lands where the pointer let go; a click or tap finds the free spot nearest the view center.
+      setNodes((current) => [...current, { ...node, position: position ?? freeSpot(start, current) }]);
       // On a phone the sheet covers the canvas; close it so the learner sees the new node.
       setOpenSheet(null);
     },
@@ -213,6 +255,21 @@ function PlaygroundCanvas() {
       }
     },
     [tapConnect, isWide, inspectorFolded, revealOnResize],
+  );
+
+  /**
+   * React Flow selects a focused node on Enter or Space but calls onNodeClick only for a pointer, so
+   * without this a keyboard learner could select a node and never see it in the inspector.
+   */
+  const onCanvasKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      const target = event.target as HTMLElement;
+      if (!target.classList.contains('react-flow__node')) return;
+      const id = target.dataset.id;
+      if (id) onNodeClick(id);
+    },
+    [onNodeClick],
   );
 
   const toggleFailure = useCallback(() => {
@@ -272,10 +329,11 @@ function PlaygroundCanvas() {
       {/* Toolbar */}
       <div className="flex items-center gap-2 border-b border-line bg-surface px-3 py-2 sm:gap-3 sm:px-4 sm:py-2.5">
         <div className="sr-only sm:not-sr-only sm:min-w-0 sm:flex-1">
-          <h1 className="text-sm font-semibold text-ink">Architecture Playground</h1>
+          <h1 className="text-sm font-semibold text-ink">Playground</h1>
           <p className="text-[11px] text-faint">Drag components in, connect them, run traffic and see what breaks.</p>
         </div>
         <Select
+          aria-label="Preset"
           value={preset}
           options={PRESETS.map((item) => ({ value: item.id, label: item.name }))}
           onChange={loadPreset}
@@ -312,7 +370,13 @@ function PlaygroundCanvas() {
         ) : null}
 
         {/* Canvas */}
-        <div className="relative min-w-0 flex-1" ref={wrapper} onDrop={onDrop} onDragOver={(event) => event.preventDefault()}>
+        <div
+          className="relative min-w-0 flex-1"
+          ref={wrapper}
+          onDrop={onDrop}
+          onDragOver={(event) => event.preventDefault()}
+          onKeyDown={onCanvasKeyDown}
+        >
           <ReactFlow
             nodes={viewNodes}
             edges={viewEdges}
@@ -337,6 +401,24 @@ function PlaygroundCanvas() {
           >
             {/* Background, MiniMap: React Flow writes these colors into SVG attributes, so no var() strings. */}
             <Background variant={BackgroundVariant.Dots} gap={18} size={1} color={colors.line} />
+            {nodes.length === 0 ? (
+              <Panel position="top-center" className="playground-panel !top-1/3 w-max max-w-[calc(100%-24px)]">
+                <div className="glass-panel max-w-xs p-4 text-center">
+                  <p className="text-sm font-semibold text-ink">The canvas is empty</p>
+                  <p className="mt-1 text-[11px] leading-relaxed text-muted">
+                    Add a Client and a Server from Components and connect them, or load a preset.
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="mt-3 w-full justify-center"
+                    onClick={() => loadPreset(STARTER_PRESET.id)}
+                  >
+                    Load {STARTER_PRESET.name}
+                  </Button>
+                </div>
+              </Panel>
+            ) : null}
             {connectSource ? (
               <ConnectBanner
                 sourceLabel={connectSource.data.label}

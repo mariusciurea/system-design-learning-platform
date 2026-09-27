@@ -27,6 +27,9 @@ export function lazyWithRetry<T extends ComponentType<any>>(factory: () => Promi
         safeSessionStorage.remove(RELOAD_FLAG);
         return module;
       } catch (retryError) {
+        // Offline, a reload would swap the whole app for the browser's own error
+        // page and lose the tab. Let the ErrorBoundary say so instead.
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) throw retryError;
         const alreadyReloaded = safeSessionStorage.get(RELOAD_FLAG) === '1';
         if (!alreadyReloaded && typeof window !== 'undefined') {
           safeSessionStorage.set(RELOAD_FLAG, '1');

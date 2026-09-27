@@ -68,16 +68,16 @@ export const gettingStartedConcepts: Concept[] = [
       },
       {
         id: 'wsd-2',
-        prompt: 'In the Requirements Lab you tick only "Send messages", at 99% availability and 1k daily users. The diagram shows Users, one App server and one Database. A teammate says the design is too simple to be real. What is the right response?',
+        prompt: 'In the Requirements Lab, Instagram at 100k daily users runs on one App server and one Database, and nothing is over its limit: about 174 requests/s at peak against the 1,000 one server handles. A teammate says the design is too simple to be real. What is the right response?',
         options: [
-          'Add a cache and a queue now, so later growth does not force a rewrite of the design',
+          'Add a cache and read replicas now, so later growth does not force a rewrite of the design',
           'Add a second region now, because moving to multi-region later means a painful migration',
           'It meets these requirements; add a part only when a requirement or a bottleneck forces it',
-          'Replace the database with a NoSQL store, because messaging apps at scale all use NoSQL',
+          'Replace the database with a NoSQL store, because social apps at scale all use NoSQL',
         ],
         answer: 2,
         explanation:
-          'A design is right relative to its requirements. At 1k users and 99%, one server and one database meet every stated number. A cache or a second region would be parts no requirement pays for - they cost money and operations every day. The Lab shows the same thing: nothing else appears until you raise a target or tick a feature.',
+          'A design is right relative to its requirements. At 100k daily users the peak is about 174 requests/s, far below what one App server handles, so every stated number is met. A cache, replicas or a second region would be parts no requirement pays for - they cost money and operations every day. The Lab shows the same thing: nothing turns red until you raise the users, and only then is one component added.',
       },
       {
         id: 'wsd-3',
@@ -133,16 +133,16 @@ export const gettingStartedConcepts: Concept[] = [
       },
       {
         id: 'wsd-7',
-        prompt: 'In the Requirements Lab (Design WhatsApp) you tick "Send images". Object storage, a CDN and a Queue + workers box appear on the diagram. What does that show?',
+        prompt: 'In the Requirements Lab, Instagram at 1M daily users sends 1,736 requests/s and the App server turns red. You pick one 8x machine and it turns green. At 10M daily users (17,361 requests/s) it is red again. What does that show?',
         options: [
-          'Every chat app needs a CDN and a queue from day one, whatever it sends',
-          'Images made the database the bottleneck, so work moved off it',
-          'A new requirement brings in the parts its own traffic needs',
-          'A quality target was raised, so the design added capacity',
+          'The 8x machine was sized wrong: a bigger machine should always last until the target',
+          'A bigger machine multiplies capacity once, while a pool of servers grows with the load',
+          'The Database is the real bottleneck, and the App server only looks overloaded to us',
+          'The fix should have been a cache, because a cache takes load off the App server too',
         ],
-        answer: 2,
+        answer: 1,
         explanation:
-          'Each box names the requirement that forced it: images need somewhere to keep large files, a way to process them off the request path, and a CDN to serve them close to users. No slider moved, so no quality target changed, and the database is not on the image path at all.',
+          'An 8x machine handles 8,000 requests/s: enough for 1M daily users, not for 10M. A fix that multiplies capacity by a fixed factor buys one round; more app servers behind a load balancer grow with the load, at the price of stateless servers. A cache sits in front of the Database, so it takes reads off the Database, not requests off the App server.',
       },
       {
         id: 'wsd-8',
@@ -181,7 +181,7 @@ export const gettingStartedConcepts: Concept[] = [
         ],
         answer: 0,
         explanation:
-          'A diagram is not finished until every box has been asked "what if this dies?". A recovery done by hand takes a large part of the 52-minute yearly budget, so 99.99% forces a standby with automatic promotion - which is what the Lab adds when you move Availability to 99.99%. More CPU or a cache do nothing when the machine is gone.',
+          'A diagram is not finished until every box has been asked "what if this dies?". A recovery done by hand takes a large part of the 52-minute yearly budget, so 99.99% forces a standby with automatic promotion. More CPU or a cache do nothing when the machine is gone.',
       },
       {
         id: 'wsd-11',
@@ -195,6 +195,19 @@ export const gettingStartedConcepts: Concept[] = [
         answer: 2,
         explanation:
           'Code answers "is the output correct for this input?". Design answers "does it keep working at scale, with a dead node, during a partition?". The tests can be perfect and the function correct; with one machine, its reboot is an outage. Skipping security updates just trades this outage for a worse one.',
+      },
+      {
+        id: 'wsd-12',
+        prompt: 'A photo app at 10M daily users runs on one app server (1,000 requests/s) and one database copy (10,000 reads/s). At peak the users send 17,361 requests/s, 16,493 of them reads. Which part is the bottleneck to fix first?',
+        options: [
+          'The app server: it passes on at most 1,000 requests/s, so the database never sees more',
+          'The database: 16,493 reads/s is the bigger overload, so it saturates before anything else',
+          'Both at once: fix them in one change, or the one left alone caps the fix of the other',
+          'Neither: at peak both queue the extra work and then catch up during the quiet hours',
+        ],
+        answer: 0,
+        explanation:
+          'Requests meet the app server first, and it turns away everything past its 1,000 requests/s - so the database behind it sees fewer than 1,000, well under its limit. Fix the app server and the full 16,493 reads/s reach the database, which becomes the next bottleneck: that is the order the Lab shows at 1M and then 10M daily users. A peak that lasts an hour does not wait for the quiet hours.',
       },
     ],
   },
@@ -221,11 +234,12 @@ export const gettingStartedConcepts: Concept[] = [
     ],
     diagram: `Design WhatsApp
 
-  [x] Send a 1:1 message        -> needs durable message store
-  [x] Receive messages live     -> needs push transport (WebSocket)
-  [x] Group conversations       -> needs fan-out on write or read
-  [ ] Video calls               -> needs media servers: different system
-  [ ] Stories                   -> needs object storage + CDN`,
+  [x] Send messages              -> App server + Database
+  [x] Receive messages live      -> WebSocket server
+  [x] Group conversations        -> Queue + workers
+  [x] Delivery and read receipts -> 3 pushes per message
+  [ ] Voice and video calls      -> Media servers: not built
+  [ ] Send images, Stories       -> Object storage + CDN: not built`,
     tradeoffs: [
       {
         approach: 'Pin down a short feature list before designing',
@@ -338,7 +352,7 @@ export const gettingStartedConcepts: Concept[] = [
       },
       {
         id: 'fr-8',
-        prompt: 'In the Requirements Lab (Design WhatsApp) you tick "Voice and video calls". Media servers appear and "Beyond core" goes up. The product manager says it is just one more checkbox. What is the honest answer?',
+        prompt: 'In the Requirements Lab (Design WhatsApp) you tick "Voice and video calls". The grey Media servers box turns into a built part and "Beyond core" goes up. The product manager says it is just one more checkbox. What is the honest answer?',
         options: [
           'Agree - the app servers already hold a WebSocket to each phone and can relay audio',
           'Calls are a separate system (media relays, signalling): scope them out or plan a subsystem',
@@ -347,7 +361,7 @@ export const gettingStartedConcepts: Concept[] = [
         ],
         answer: 1,
         explanation:
-          'Real-time audio and video need media relays built for it, with their own scaling and bandwidth costs - the Lab marks the feature as extra for that reason. App servers built for small messages are the wrong place to relay media, and the WebSocket tier is still needed to ring the other phone.',
+          'Real-time audio and video need media relays built for it, with their own scaling and bandwidth costs - the Lab marks the feature as extra for that reason. App servers built for small messages are the wrong place to relay media, and the WebSocket server is still needed to ring the other phone.',
       },
       {
         id: 'fr-9',
@@ -489,7 +503,7 @@ export const gettingStartedConcepts: Concept[] = [
         ],
         answer: 3,
         explanation:
-          'At 99.99% a manual database recovery or one lost zone would use up the yearly budget, so the database gets a standby that is promoted automatically and the app servers spread across zones. A second region is what the Lab adds at 99.999%, where even a region outage must be survived.',
+          'At 99.99% a manual database recovery or one lost zone would use up the yearly budget, so the database gets a standby that is promoted automatically and every other tier - app servers, cache, queue, index - keeps a copy in each of 3 zones. A second region is what the Lab adds at 99.999%, where even a region outage must be survived.',
       },
       {
         id: 'nfr-5',
@@ -545,16 +559,16 @@ export const gettingStartedConcepts: Concept[] = [
       },
       {
         id: 'nfr-9',
-        prompt: 'The payments database must lose no acknowledged payment if the machine holding it dies. Which design meets that target?',
+        prompt: 'Uber must lose no acknowledged payment if the machine holding its database dies. Which design meets that target?',
         options: [
-          'Synchronous replication to a second copy, plus backups that are restored in tests',
-          'Asynchronous replication to a replica in another zone, promoted when the primary dies',
-          'Nightly backups copied to object storage in another region',
-          'A bigger RAID disk array on the one machine, so no single disk failure loses data',
+          'A synchronous standby in a second zone, so a payment is confirmed only once both copies hold it',
+          'An asynchronous replica in another zone, promoted to primary when the machine holding the data dies',
+          'Nightly backups copied to object storage in another region, restored when the machine dies',
+          'A bigger RAID disk array on the one machine, so that no single disk failure can lose a payment',
         ],
         answer: 0,
         explanation:
-          'With asynchronous replication the primary confirms before the copy arrives, so the last moments of writes can vanish with the machine. Nightly backups lose up to a day, and a bigger disk dies with its machine. Only a copy confirmed before the acknowledgement meets "no acknowledged write lost" - the Critical durability level in the Lab.',
+          'With asynchronous replication the primary confirms before the copy arrives, so the last moments of writes can vanish with the machine. Nightly backups lose up to a day, and a bigger disk dies with its machine. Only a copy confirmed before the acknowledgement meets "no acknowledged write lost". In the Lab that is Critical durability: the Database becomes Database x2, a synchronous standby in a second zone, its stat turns to Peak sync writes because each write waits for the standby, and the monthly cost goes from x1 to x1.5.',
       },
       {
         id: 'nfr-10',
@@ -571,16 +585,16 @@ export const gettingStartedConcepts: Concept[] = [
       },
       {
         id: 'nfr-11',
-        prompt: 'In the Requirements Lab you keep the features and move Daily active users from 100k to 10M. Which change do you see, and why?',
+        prompt: 'In the Requirements Lab on Uber you keep the core features and move Daily active users from 100k to 10M. Which change do you see, and why?',
         options: [
-          'The database shards, a cache and workers appear, and the app tier grows - peak rises 100x',
-          'Only the number of app servers changes, because each app server handles a fixed number of users',
-          'A second region appears, because 10M users are spread across continents',
-          'Nothing changes - user count is a functional requirement, not a quality target',
+          'App servers go from 6 to 479 and a Cache appears; one database primary still takes the trip writes',
+          'Only the app servers grow, from 6 to 60, since each app server serves a fixed share of the riders',
+          'The database is split into partitions, since 10M riders send more trip writes than one primary can take',
+          'A second region appears, since 10M daily users are too many to serve from one region of 3 zones',
         ],
         answer: 0,
         explanation:
-          'At 10M users a single database and uncached reads no longer hold, and slow work has to leave the request path. The Lab model puts peak traffic near 11,600 requests per second (20 requests a user, 5x peak), so the app tier grows too. A second region only appears at 100M users or 99.999%.',
+          'Every online driver sends a location every 4 seconds - 540 writes a day for each daily user on average, against 10 rider requests - so the peak is about 318,000 requests a second, and at 1,000 each plus 50% headroom that is 479 app servers (6 at 100k). Those location writes land in the in-memory Geo index (about 312,500 a second), not the database: trips add only about 1,160 writes a second at peak, far under the 10,000 one primary absorbs, so the database is not split. A Cache appears for the hot reads, and the Queue + workers already drawn for payments also take anything slow. A second region only appears at 100M users or 99.999%.',
       },
     ],
   },
@@ -600,18 +614,23 @@ export const gettingStartedConcepts: Concept[] = [
       'Divide by 86,400 to get the average rate per second.',
       'Multiply by a peak factor (2-10x) - traffic is never flat.',
       'Divide the peak by what one server handles (about 1,000 req/sec when each request does real work) and add headroom.',
-      'Multiply object size by writes per day for storage growth; then by 365, the retention period and the replication factor.',
+      'Multiply writes per day by object size for storage per day, then by 365 for storage per year (one copy).',
+      'Multiply storage per year by the retention in years for what you keep, then by the replication factor for what you store.',
       'Compute bandwidth as request rate times payload size, and check it against a single machine.',
     ],
     when: ['Early in any design discussion.', 'Before picking a storage engine or a sharding strategy.'],
     diagram: `10,000,000 DAU x 20 requests/day = 200,000,000 requests/day
 
-200,000,000 / 86,400  ~=  2,315 req/sec  (average)
-2,315 x 5 peak factor ~= 11,575 req/sec  (peak)
-11,575 / 1,000 per server = 12, x 1.5 headroom = 18 servers
+200,000,000 / 86,400   ~=  2,315 req/sec  (average)
+2,315 x 5 peak factor  ~= 11,574 req/sec  (peak)
+11,574 / 1,000 per server = 12, x 1.5 headroom = 18 servers
 
-Writes 10% -> ~230 writes/sec average, ~1,160 at peak
-2 KB per write -> ~40 GB/day -> ~15 TB/year (x 3 copies = 44 TB)`,
+Writes 10% -> ~231 writes/sec average, ~1,157 at peak
+
+20,000,000 writes/day x 2 KB  = 40 GB/day
+40 GB/day x 365 days          = 14.6 TB/year   (per year, one copy)
+14.6 TB/year x 5 years        = 73 TB kept     (retention)
+73 TB x 3 copies              = 219 TB stored  (replication)`,
     tradeoffs: [
       {
         approach: 'Size from explicit estimates (DAU x requests x peak factor)',
@@ -628,7 +647,7 @@ Writes 10% -> ~230 writes/sec average, ~1,160 at peak
       'Designing for the average and being paged during the peak.',
       'Forgetting that reads and writes have wildly different costs.',
       'Forgetting the replication factor and the retention period in the storage estimate.',
-      'Precision theatre: 11,575 and "about 10k" lead to the same decisions.',
+      'Precision theatre: 11,574 and "about 10k" lead to the same decisions.',
     ],
     related: ['back-of-the-envelope', 'non-functional-requirements', 'sharding', 'horizontal-scaling'],
     quiz: [
@@ -680,10 +699,10 @@ Writes 10% -> ~230 writes/sec average, ~1,160 at peak
       {
         id: 'cap-est-5',
         prompt:
-          'The estimate says 10,400 peak reads/sec and 1,160 peak writes/sec. The database primary is struggling, and a teammate adds three read replicas. What does that change?',
+          'The estimate says 10,417 peak reads/sec and 1,157 peak writes/sec. The database primary is struggling, and a teammate adds three read replicas. What does that change?',
         options: [
           'Writes spread across all four machines, so the primary does a quarter of the work',
-          'Reads can move to the replicas; the primary still takes all 1,160 writes/sec',
+          'Reads can move to the replicas; the primary still takes all 1,157 writes/sec',
           'Nothing - replicas exist only for durability, never for load',
           'Both reads and writes roughly halve, since the load now has more machines to use',
         ],
@@ -694,16 +713,16 @@ Writes 10% -> ~230 writes/sec average, ~1,160 at peak
       {
         id: 'cap-est-6',
         prompt:
-          'In the Lab you raise the write share and the Database card turns to "Partition the writes": peak writes are 40,000/sec against a planning limit of about 10,000 for one primary. What does the estimate tell you to plan?',
+          'In the Lab you raise the write share from 10% to 90% and the Database card turns to "Partition the writes": peak writes are 10,417/sec against a planning limit of about 10,000 for one primary. What does the estimate tell you to plan?',
         options: [
           'More app servers, since the writes queue up in them waiting for the database',
           'More read replicas, so the primary spends less time serving reads',
-          'A higher peak factor, so the fleet is sized for spikes above 40,000/sec',
+          'A higher peak factor, so the fleet is sized for spikes above 10,417/sec',
           'Partitioning (sharding) the data, so writes spread across primaries',
         ],
         answer: 3,
         explanation:
-          'Writes are the hard constraint because they all land on the primary. App servers and read replicas do not add write capacity. 10,000 writes/sec is a simplified planning number, not a measured limit - but 4x over it is a clear signal that one primary will not do.',
+          'Writes are the hard constraint because they all land on the primary: at 90% writes, the 11,574 peak requests/sec become 10,417 peak writes/sec. App servers and read replicas do not add write capacity, and only 1,157 reads/sec are left for replicas to take. 10,000 writes/sec is a simplified planning number, not a measured limit - but the estimate is already past it, and every new user pushes it further.',
       },
       {
         id: 'cap-est-7',
@@ -854,7 +873,7 @@ Round trip California -> Netherlands ~150 ms
         ],
         answer: 1,
         explanation:
-          'An SSD random read is about 100 us, so 50 x 100 us = 5 ms. A spinning-disk seek is about 10 ms, so 50 x 10 ms = 500 ms. Knowing the two orders of magnitude settles it in seconds - the reads here are random, so the sequential-read argument does not apply.',
+          'An SSD random read is about 100 us, so 50 x 100 us = 5 ms. A spinning-disk seek is about 10 ms, so 50 x 10 ms = 500 ms. Knowing the two orders of magnitude settles it in seconds - the reads here are random, so the sequential-read argument does not apply. In the Speed view of the Lab, set 50 database calls with 0% of reads in RAM, then switch a miss from SSD to Spinning disk: the storage line goes from 5 ms to 500 ms.',
       },
       {
         id: 'botec-2',
@@ -868,12 +887,12 @@ Round trip California -> Netherlands ~150 ms
         ],
         answer: 2,
         explanation:
-          'A transatlantic round trip is about 150 ms, set by distance, not by server speed, so 30 calls take 4.5 s - nine times the budget. Faster code or more servers do not shorten the trip. Removing round trips (one batched call) or shortening the distance (a local cache) is the only fix.',
+          'A transatlantic round trip is about 150 ms, set by distance, not by server speed, so 30 calls take 4.5 s - nine times the budget. Faster code or more servers do not shorten the trip. Removing round trips (one batched call) or shortening the distance (a local cache) is the only fix. In the Speed view of the Lab, put the user on another continent and set 30 calls from the user: the round trips alone come to 4.5 s, and one call brings them back to 150 ms.',
       },
       {
         id: 'botec-3',
         prompt:
-          'In the Lab with rounding on, 12M users x 8 requests becomes 10^7 x 10. The rough peak is 5,000 req/sec and the exact one is 5,556. What does the "1.1x" in the Rough against exact table mean for the design?',
+          'In the Size view of the Lab, with rounding on, 12M users x 8 requests becomes 10^7 x 10. The rough peak is 5,000 req/sec and the exact one is 5,556. What does the "1.1x" in the Rough against exact table mean for the design?',
         options: [
           'The rough answer is 10% off, so it must be redone with exact numbers before any design',
           'Both land in one category, a fleet behind a load balancer, so the design is the same',
@@ -901,16 +920,16 @@ Round trip California -> Netherlands ~150 ms
       {
         id: 'botec-5',
         prompt:
-          'In the Lab on the default setup with rounding on, 20 requests per user rounds to 10 and 2 KB rounds to 1 KB. Rough storage comes out about 4x below exact. Why?',
+          'In the Size view of the Lab, with rounding on, move Requests per user to 20 and Average object size to 2 KB. Rough against exact now puts stored data about 4x below exact, where it was about 1x. What happened?',
         options: [
-          'Rounding to powers of ten is always about 4x off, whatever the inputs are',
+          'Rounding to powers of ten is always about 4x off; the earlier 1x match was luck',
           'The replication factor of 3 is ignored in rough mode, which removes most of the total',
           'Rough mode uses 1,024 bytes per KB, and that difference compounds over a year of data',
-          'Both inputs rounded down, so their 2x errors multiplied instead of cancelling',
+          'Users, requests and size all rounded down, so the errors multiplied, not cancelled',
         ],
         answer: 3,
         explanation:
-          'Each power-of-ten rounding can be off by up to about 3x. When one input rounds up and another down, errors cancel; when both go the same way they compound. The fix is to notice it - round one of them the other way, or check the exact sum.',
+          '12M became 10^7, 20 requests became 10 and 2 KB became 1 KB: three roundings down, by 1.2x, 2x and 2x, multiply to almost 5x (365 days rounding up to 400 wins a little back). With 8 requests and 1.2 KB, 8 rounded up and the errors cancelled. Move Requests per user to 40, which rounds up to 100, and the gap falls to about 1.1x. When every input rounds the same way, check the exact sum.',
       },
       {
         id: 'botec-6',
@@ -937,7 +956,7 @@ Round trip California -> Netherlands ~150 ms
         ],
         answer: 1,
         explanation:
-          'Divide bits by 8: 1 Gbit/sec is about 125 MB/sec, so 500 MB/sec (4 Gbit/sec, not 40) needs about four links, more with protocol overhead. Reading Gbit as GB is the classic 8x mistake.',
+          'Divide bits by 8: 1 Gbit/sec is about 125 MB/sec, so 500 MB/sec (4 Gbit/sec, not 40) needs about four links, more with protocol overhead. Reading Gbit as GB is the classic 8x mistake. In the Speed view of the Lab, set Response size to 500 MB: one 1 Gbit/s link needs about 4 s to move it, so one second of it needs four links.',
       },
       {
         id: 'botec-8',
@@ -951,7 +970,7 @@ Round trip California -> Netherlands ~150 ms
         ],
         answer: 3,
         explanation:
-          'Light in fibre covers roughly 200 km per millisecond, and the path is never straight, so a round trip between Europe and the US costs tens to a hundred-plus milliseconds. No hardware upgrade removes it; only avoiding the synchronous cross-region wait does.',
+          'Light in fibre covers roughly 200 km per millisecond, and the path is never straight, so a round trip between Europe and the US costs tens to a hundred-plus milliseconds. No hardware upgrade removes it; only avoiding the synchronous cross-region wait does. In the Speed view of the Lab, put the user on another continent and every read in RAM: the request still never drops below about 150 ms.',
       },
       {
         id: 'botec-9',
@@ -965,7 +984,7 @@ Round trip California -> Netherlands ~150 ms
         ],
         answer: 0,
         explanation:
-          'A round trip within a datacenter is about 0.5 ms, so 200 of them are about 100 ms before the database does any work. That is the N+1 query problem: the cost is the number of trips, which is why batching beats faster code.',
+          'A round trip within a datacenter is about 0.5 ms, so 200 of them are about 100 ms before the database does any work. That is the N+1 query problem: the cost is the number of trips, which is why batching beats faster code. In the Speed view of the Lab, keep the user in the same region and set 200 database calls: the datacenter hops come to 100 ms and dominate the request.',
       },
       {
         id: 'botec-10',
@@ -979,7 +998,7 @@ Round trip California -> Netherlands ~150 ms
         ],
         answer: 2,
         explanation:
-          'SSD is about 1,000x slower than memory, so the 10% of misses cost far more than the 90% of hits: 10 us against 0.09 us. Raising the hit rate from 90% to 99% cuts the average almost tenfold.',
+          'SSD is about 1,000x slower than memory, so the 10% of misses cost far more than the 90% of hits: 10 us against 0.09 us. Raising the hit rate from 90% to 99% cuts the average almost tenfold. In the Speed view of the Lab, Reads found in RAM starts at 90%: the SSD line is 10 us against 90 ns for RAM, and 99% takes the average read from about 10 us to 1.1 us.',
       },
       {
         id: 'botec-11',

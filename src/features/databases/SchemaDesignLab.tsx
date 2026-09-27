@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
 import { ArchNode, DiagramCanvas, NodeStatRow, ParticleLegend, type DiagramEdge, type Layout, type ParticleView } from '@/components/architecture';
 import { Insight, LabShell, MetricsPanel, SIMULATED_HINT } from '@/components/learning';
 import { Meter, SegmentedControl, Slider, Toggle } from '@/components/ui';
@@ -9,6 +9,7 @@ import { useRerender } from '@/hooks/useRerender';
 import { clamp, sampleArrivals } from '@/utils/math';
 import { formatLatency, formatNumber, formatPercent } from '@/utils/format';
 import type { LabFocus, LabProps, RequestOutcome } from '@/types';
+import { useLabRunning } from '@/hooks/useLabRunning';
 
 type Schema = 'normalized' | 'denormalized';
 
@@ -84,9 +85,9 @@ const LAYOUT: Layout = {
   reads: { x: 20, y: 50, w: 210, h: 94 },
   writes: { x: 20, y: 326, w: 210, h: 94 },
   db: { x: 350, y: 150, w: 240, h: 168 },
-  customers: { x: 690, y: 20, w: 250, h: 110 },
-  orders: { x: 690, y: 180, w: 250, h: 110 },
-  items: { x: 690, y: 340, w: 250, h: 110 },
+  customers: { x: 690, y: 20, w: 250, h: 116 },
+  orders: { x: 690, y: 180, w: 250, h: 116 },
+  items: { x: 690, y: 340, w: 250, h: 116 },
 };
 
 interface SimState {
@@ -108,7 +109,7 @@ export function SchemaDesignLab({ focus }: LabProps<'schema-design'>) {
   const { setup, setSetup, change } = useLabSetup(start);
   const { schema, reads, updates, ordersPerCustomer, halfDone, reconcile } = setup;
 
-  const [running, setRunning] = useState(true);
+  const [running, setRunning] = useLabRunning();
   const state = useRef<SimState>(createState());
   const rerender = useRerender(30);
   const { events, log, clear } = useEventLog();
@@ -324,7 +325,7 @@ export function SchemaDesignLab({ focus }: LabProps<'schema-design'>) {
       title="Schema Design Lab"
       description="One orders schema, normalized or denormalized. Run order page reads and email changes against it and watch where the rows are read, where they are written, and whether the copies still agree."
       running={running}
-      onToggleRun={() => setRunning((value) => !value)}
+      onRunningChange={setRunning}
       onReset={reset}
       events={events}
       legend={<ShapeLegend />}
@@ -461,7 +462,7 @@ export function SchemaDesignLab({ focus }: LabProps<'schema-design'>) {
             disabled={!denormalized}
             description={`Every ${RECONCILE_EVERY_S} s, recompute the copies from customers and fix drift. It costs row reads.`}
           />
-          <div className="rounded-xl border border-line bg-elevated p-3">
+          <div className="border-t border-line pt-4">
             <p className="label mb-2">Where the load comes from</p>
             <Meter value={readShare} tone="brand" label="Reads" />
             <p className="mt-2 font-mono text-[11px] text-muted">

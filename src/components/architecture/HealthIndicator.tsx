@@ -6,6 +6,8 @@ const STATUS = {
   degraded: { dot: 'bg-warn', text: 'text-warn', label: 'Degraded' },
   down: { dot: 'bg-danger', text: 'text-danger', label: 'Down' },
   starting: { dot: 'bg-brand', text: 'text-brand', label: 'Starting' },
+  overloaded: { dot: 'bg-danger', text: 'text-danger', label: 'Overloaded' },
+  idle: { dot: 'bg-faint', text: 'text-muted', label: 'Idle' },
 } as const satisfies Record<NodeStatus, { dot: string; text: string; label: string }>;
 
 interface HealthIndicatorProps {
@@ -21,7 +23,7 @@ export function HealthIndicator({ status, label, className, showLabel = true }: 
   return (
     <span className={cn('inline-flex items-center gap-1.5 text-[11px] font-medium', style.text, className)}>
       <span className="relative flex h-2 w-2">
-        {status !== 'down' ? (
+        {status !== 'down' && status !== 'idle' ? (
           <span className={cn('absolute inline-flex h-full w-full rounded-full opacity-60', style.dot, 'animate-pulse-ring')} />
         ) : null}
         <span className={cn('relative inline-flex h-2 w-2 rounded-full', style.dot)} />

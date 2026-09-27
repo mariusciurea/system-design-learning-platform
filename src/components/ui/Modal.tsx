@@ -24,6 +24,9 @@ interface ModalProps {
  */
 export function Modal({ onClose, labelledBy, label, className, panelClassName, onKeyDown, children }: ModalProps) {
   const panel = useRef<HTMLDivElement>(null);
+  // Where the press started. A drag that starts in a field (selecting text) and ends on the dimmed
+  // layer fires a click there too; closing on it would throw away what was typed.
+  const pressedOnLayer = useRef(false);
 
   useEffect(() => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -54,7 +57,16 @@ export function Modal({ onClose, labelledBy, label, className, panelClassName, o
   };
 
   return (
-    <div className={cn('fixed inset-0 z-50 flex bg-black/40', className)} onClick={onClose}>
+    <div
+      className={cn('fixed inset-0 z-50 flex bg-black/40', className)}
+      onPointerDown={(event) => {
+        pressedOnLayer.current = event.target === event.currentTarget;
+      }}
+      onClick={(event) => {
+        if (pressedOnLayer.current && event.target === event.currentTarget) onClose();
+        pressedOnLayer.current = false;
+      }}
+    >
       <div
         ref={panel}
         role="dialog"

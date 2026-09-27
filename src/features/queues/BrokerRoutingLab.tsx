@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef } from 'react';
 import { Send } from 'lucide-react';
 import {
   ArchNode,
@@ -17,6 +17,7 @@ import { useRerender } from '@/hooks/useRerender';
 import { cn } from '@/utils/cn';
 import { formatNumber } from '@/utils/format';
 import type { LabFocus, LabProps, RequestOutcome } from '@/types';
+import { useLabRunning } from '@/hooks/useLabRunning';
 
 // ---- The routing model ------------------------------------------------------
 
@@ -264,12 +265,13 @@ function spawn(state: State, route: string[], meta: Meta, outcome: RequestOutcom
 // ---- Layout -----------------------------------------------------------------
 
 const HEIGHT = 530;
-const ROW_H = 90;
+const ROW_H = 94;
 const ROW_GAP = 12;
 const COL = {
   pub: { x: 12, w: 150 },
   ex: { x: 222, w: 172 },
-  q: { x: 514, w: 172 },
+  // 184 wide: "5 competing consumers" under Shared queue needs about 182.
+  q: { x: 514, w: 184 },
   svc: { x: 736, w: 212 },
 };
 
@@ -312,7 +314,7 @@ export function BrokerRoutingLab({ focus }: LabProps<'broker-routing'>) {
   const changeSub = (id: SubId, patch: Partial<Subscriber>) =>
     setSetup((current) => ({ ...current, subs: { ...current.subs, [id]: { ...current.subs[id], ...patch } } }));
 
-  const [running, setRunning] = useState(true);
+  const [running, setRunning] = useLabRunning();
   const state = useRef<State>(createState(start));
   const rerender = useRerender(30);
   const { events, log, clear } = useEventLog();
@@ -709,7 +711,7 @@ export function BrokerRoutingLab({ focus }: LabProps<'broker-routing'>) {
       title="Broker Routing Lab"
       description="A publisher, an exchange, a queue per subscriber and the services behind them. Pick how the exchange routes, change the bindings, and take subscribers down."
       running={running}
-      onToggleRun={() => setRunning((value) => !value)}
+      onRunningChange={setRunning}
       onReset={reset}
       events={events}
       actions={
@@ -725,13 +727,13 @@ export function BrokerRoutingLab({ focus }: LabProps<'broker-routing'>) {
         </Button>
       }
       legend={
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
-          <ParticleLegend outcomes={['success', 'warning', 'failure']} />
-          <span className="text-[11px] text-faint">
-            Circle: an event copy. Triangle: handed to a service that did not want it. Cross: dropped by the exchange, or
-            a failed call.
-          </span>
-        </div>
+        <ParticleLegend
+          outcomes={[
+            { outcome: 'success', label: 'An event copy' },
+            { outcome: 'warning', label: 'Handed to the wrong service' },
+            { outcome: 'failure', label: 'Dropped, or a failed call' },
+          ]}
+        />
       }
       insight={<Insight>{insight}</Insight>}
       metrics={
@@ -896,12 +898,12 @@ export function BrokerRoutingLab({ focus }: LabProps<'broker-routing'>) {
               />
             </>
           ) : null}
-          <div className="space-y-2">
+          <div className="space-y-3">
             <p className="text-xs font-medium text-muted">Subscribers</p>
             {SERVICES.map(({ id, name }) => {
               const sub = setup.subs[id];
               return (
-                <div key={id} className="space-y-2 rounded-xl border border-line bg-elevated p-3">
+                <div key={id} className="space-y-2 border-t border-line pt-3">
                   <Toggle label={name} checked={sub.on} onChange={(on) => changeSub(id, { on })} />
                   {sub.on ? (
                     <>

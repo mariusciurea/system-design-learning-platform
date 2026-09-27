@@ -31,7 +31,7 @@ export function DistributionBar({
         return (
           <div key={item.label} className="flex items-center gap-3">
             <span className="w-24 shrink-0 truncate text-xs text-muted">{item.label}</span>
-            <div className="relative h-4 flex-1 overflow-hidden rounded-md bg-elevated">
+            <div className="relative h-4 flex-1 overflow-hidden rounded-md bg-line/60">
               <div
                 className={cn(
                   'h-full rounded-md transition-[width] duration-300',

@@ -1,98 +1,136 @@
-import type { VisualSpec } from '@/components/architecture/FlowVisual';
+// A relative path, not the @/ alias: requirementsArchitecture.test.ts reads these specs on Node.
+import type { VisualSpec } from '../../components/architecture/FlowVisual.tsx';
 
 /** Getting started, plus the remaining quality-attribute concepts. */
 export const foundationVisuals: Record<string, VisualSpec> = {
   'what-is-system-design': {
+    // The Requirements Lab on this Concept at round 2 of the loop, shortened: Instagram at 10M daily
+    // users after round 1 put more app servers behind a load balancer, with the Database now red for
+    // feed reads. The same parts under the same names and stat rows (Object storage and Queue +
+    // workers are left out); every number is the sizing model (requirementsBottleneck.ts), and a
+    // test holds each stat row to the Lab. The steps before round 1 was fixed never travel a wire
+    // through the Load balancer: the Lab has none until that fix, so they stay on one part. The
+    // nodes show round 2, so a caption about an earlier round names its users ("at 100k", "1M
+    // users") and is held to the Lab at that round; every other caption agrees with the nodes.
     width: 800,
-    height: 300,
-    caption: 'Find the bottleneck, remove it with one component, name the cost it added. Repeat.',
+    height: 320,
+    caption:
+      'Instagram, one bottleneck at a time: at 1M daily users the App server passed its limit; at 10M the Database passes 10,000 reads/s.',
     nodes: [
-      { id: 'req', kind: 'client', label: 'Requirements', x: 30, y: 110, w: 160, h: 78 },
-      { id: 'simple', kind: 'server', label: 'Simplest design', x: 240, y: 30, w: 180, h: 78 },
-      { id: 'bottleneck', kind: 'sql', label: 'Bottleneck', sub: 'measured', x: 240, y: 190, w: 180, h: 80, alert: true },
-      { id: 'fix', kind: 'cache', label: 'One component', x: 470, y: 110, w: 170, h: 78 },
-      { id: 'cost', kind: 'monitoring', label: 'New cost', x: 668, y: 110, w: 118, h: 78 },
+      { id: 'users', kind: 'client', label: 'Users', sub: '10M daily users', x: 16, y: 112, w: 150, h: 95, stat: ['Peak', '~17.4K req/s'] },
+      { id: 'lb', kind: 'load-balancer', label: 'Load balancer x2', sub: 'round 1 fix', x: 196, y: 115, w: 176, h: 90 },
+      { id: 'api', kind: 'server', label: 'App servers x27', sub: 'stateless now', x: 402, y: 112, w: 180, h: 95, stat: ['Peak load', '~17.4K req/s'] },
+      {
+        id: 'db',
+        kind: 'sql',
+        label: 'Database',
+        sub: 'one copy, feed reads',
+        x: 606,
+        y: 112,
+        w: 186,
+        h: 95,
+        status: 'overloaded',
+        statusLabel: 'Over its limit',
+        stat: ['Peak reads', '~16.5K of 10K/s'],
+      },
     ],
     edges: [
-      { from: 'req', to: 'simple', tone: 'brand', rate: 1.6 },
-      { from: 'simple', to: 'bottleneck', tone: 'warn', rate: 1.6, outcome: 'warning' },
-      { from: 'bottleneck', to: 'fix', tone: 'ok', rate: 1.6 },
-      { from: 'fix', to: 'cost', tone: 'violet', rate: 1.6, outcome: 'warning' },
+      { from: 'users', to: 'lb', tone: 'brand', rate: 1.6 },
+      { from: 'lb', to: 'api', tone: 'brand', rate: 1.6 },
+      { from: 'api', to: 'db', tone: 'brand', rate: 1.4 },
     ],
     steps: [
-      { from: 'req', to: 'simple', label: 'Start from requirements' },
-      { from: 'simple', to: 'bottleneck', label: 'Run it, find the limit', outcome: 'warning' },
-      { from: 'bottleneck', to: 'fix', label: 'Add one component' },
-      { from: 'fix', to: 'cost', label: 'Name what it cost', outcome: 'warning' },
+      { from: 'users', to: 'users', label: 'Requirements: post, feed, follow, like' },
+      { from: 'api', to: 'db', label: 'Simplest design at 100k: one server' },
+      { from: 'api', to: 'api', label: '1M users: App server over limit', outcome: 'failure' },
+      { from: 'lb', to: 'api', label: 'Add one component: more servers' },
+      { from: 'api', to: 'api', label: 'Its cost: servers must be stateless', outcome: 'warning' },
+      { from: 'api', to: 'db', label: 'Repeat at 10M: Database reads over', outcome: 'failure' },
+      { from: 'db', to: 'db', label: 'Next: cache, replicas or bigger machine' },
     ],
   },
 
   'functional-requirements': {
+    // The Requirements Lab on this Concept, shortened: WhatsApp at relaxed targets, the same parts
+    // under the same names, each named by the feature that forced it; calls are not picked, so the
+    // Media servers stay grey and unbuilt.
     width: 760,
-    height: 309,
-    caption: 'Each feature you keep pulls a component into the diagram.',
+    height: 320,
+    caption: 'Each picked feature pulls in the parts it needs. An unpicked one builds nothing.',
     nodes: [
-      { id: 'send', kind: 'client', label: 'Send a message', x: 30, y: 25, w: 180, h: 72 },
-      { id: 'live', kind: 'client', label: 'Receive live', x: 30, y: 115, w: 180, h: 72 },
-      { id: 'video', kind: 'client', label: 'Video calls', sub: 'out of scope', x: 30, y: 205, w: 180, h: 80, status: 'down' },
-      { id: 'store', kind: 'sql', label: 'Message store', x: 330, y: 25, w: 180, h: 76 },
-      { id: 'ws', kind: 'service', label: 'WebSocket gateway', x: 330, y: 125, w: 200, h: 76 },
-      { id: 'media', kind: 'storage', label: 'Media servers', sub: 'not built', x: 330, y: 215, w: 180, h: 80, status: 'down' },
-      { id: 'sys', kind: 'server', label: 'System', x: 610, y: 105, w: 120, h: 80 },
+      { id: 'users', kind: 'client', label: 'Users', sub: '1k daily users', x: 20, y: 120, w: 160, h: 80 },
+      { id: 'media', kind: 'server', label: 'Media servers', sub: 'for calls', x: 20, y: 230, w: 170, h: 80, status: 'down', statusLabel: 'Not built' },
+      { id: 'api', kind: 'server', label: 'App server', sub: 'for send', x: 280, y: 120, w: 170, h: 80 },
+      { id: 'ws', kind: 'service', label: 'WebSocket server', sub: 'for live delivery', x: 280, y: 230, w: 200, h: 80 },
+      { id: 'db', kind: 'sql', label: 'Database', sub: 'for send', x: 560, y: 20, w: 180, h: 80 },
+      { id: 'async', kind: 'queue', label: 'Queue + workers', sub: 'for group fan-out', x: 560, y: 120, w: 180, h: 80 },
     ],
     edges: [
-      { from: 'send', to: 'store', tone: 'ok', rate: 1.6 },
-      { from: 'live', to: 'ws', tone: 'ok', rate: 1.6 },
-      { from: 'video', to: 'media', tone: 'muted', dashed: true },
-      { from: 'store', to: 'sys', tone: 'brand', rate: 1.4 },
-      { from: 'ws', to: 'sys', tone: 'brand', rate: 1.4 },
+      { from: 'users', to: 'api', tone: 'brand', rate: 1.4 },
+      { from: 'api', to: 'db', tone: 'brand', rate: 1.4 },
+      { from: 'api', to: 'ws', tone: 'violet', rate: 1.2 },
+      { from: 'ws', to: 'users', tone: 'violet', rate: 1.2 },
+      { from: 'api', to: 'async', tone: 'info', rate: 1 },
+      { from: 'async', to: 'ws', tone: 'violet', rate: 1 },
+      { from: 'users', to: 'media', tone: 'muted', dashed: true },
     ],
     steps: [
-      { from: 'send', to: 'store', label: 'Sending needs a message store' },
-      { from: 'store', to: 'sys', label: 'Store joins the system' },
-      { from: 'live', to: 'ws', label: 'Live delivery needs WebSockets' },
-      { from: 'ws', to: 'sys', label: 'Gateway joins the system' },
-      { from: 'video', to: 'media', label: 'Video cut: nothing gets built', skipped: true },
+      { from: 'users', to: 'api', label: 'Send needs an App server' },
+      { from: 'api', to: 'db', label: 'Each message stored in Database' },
+      { from: 'api', to: 'ws', label: 'Live delivery needs a WebSocket server' },
+      { from: 'ws', to: 'users', label: 'Pushed down the open connection' },
+      { from: 'api', to: 'async', label: 'Groups need Queue + workers' },
+      { from: 'async', to: 'ws', label: 'Workers copy it to every member' },
+      { from: 'users', to: 'media', label: 'Calls not picked: nothing built', skipped: true },
     ],
   },
 
   'non-functional-requirements': {
-    width: 760,
-    height: 300,
-    caption: '99.99% is not a setting - it is redundancy, failover and multi-zone deployment.',
+    // The Requirements Lab on this Concept after raising Availability to 99.99%: Uber, the same
+    // parts under the same names and stat rows, shortened to the ride request and its live
+    // tracking (the Geo index x3 and Queue + workers x3 are left out, and the caption says so). The
+    // Lab draws zones as an underlay, not a part, so here they live in the subtitles. x3 is
+    // `relativeCost` for that setup (requirementsCost.ts), inside the 2-3x a test holds it to.
+    width: 800,
+    height: 320,
+    caption: '99.99% for Uber ride requests: every tier copied into 3 zones (the geo index and queue too, not drawn here) and a database standby promoted automatically. Monthly cost x1 -> x3 (simplified model).',
     nodes: [
-      { id: 'target', kind: 'client', label: '99.99% availability', x: 30, y: 110, w: 190, h: 82 },
-      { id: 'redundancy', kind: 'server', label: 'Redundant instances', x: 300, y: 15, w: 200, h: 74 },
-      { id: 'zones', kind: 'cdn', label: 'Multi-zone', x: 300, y: 105, w: 200, h: 74 },
-      { id: 'failover', kind: 'sql', label: 'Automated failover', x: 300, y: 195, w: 200, h: 74 },
-      { id: 'cost', kind: 'monitoring', label: 'Cost 2-3x', x: 580, y: 105, w: 150, h: 80, alert: true },
+      { id: 'users', kind: 'client', label: 'Users', sub: '1k daily users', x: 16, y: 112, w: 150, h: 95, stat: ['Peak', '~32 req/s'] },
+      { id: 'lb', kind: 'load-balancer', label: 'Load balancer x2', sub: 'skips a dead server', x: 196, y: 115, w: 176, h: 90 },
+      { id: 'api', kind: 'server', label: 'App servers x3', sub: 'one in each of 3 zones', x: 402, y: 20, w: 196, h: 95, stat: ['1 for load', '+2 for 99.99%'] },
+      { id: 'ws', kind: 'service', label: 'WebSocket x3', sub: 'one in each of 3 zones', x: 402, y: 205, w: 196, h: 95, stat: ['1 for load', '+2 for 99.99%'] },
+      { id: 'db', kind: 'sql', label: 'Database x2', sub: 'primary + standby', x: 628, y: 20, w: 164, h: 95, statusLabel: 'Reads: any copy', stat: ['Peak writes', '<1/s'] },
     ],
     edges: [
-      { from: 'target', to: 'redundancy', tone: 'ok', rate: 1.4 },
-      { from: 'target', to: 'zones', tone: 'ok', rate: 1.4 },
-      { from: 'target', to: 'failover', tone: 'ok', rate: 1.4 },
-      { from: 'redundancy', to: 'cost', tone: 'warn', rate: 1, outcome: 'warning' },
-      { from: 'zones', to: 'cost', tone: 'warn', rate: 1, outcome: 'warning' },
+      { from: 'users', to: 'lb', tone: 'brand', rate: 1.4 },
+      { from: 'lb', to: 'api', tone: 'brand', rate: 1.4 },
+      { from: 'api', to: 'db', tone: 'brand', rate: 1.2 },
+      { from: 'api', to: 'ws', tone: 'violet', rate: 1 },
+      { from: 'ws', to: 'lb', tone: 'violet', rate: 1 },
     ],
     steps: [
-      { from: 'target', to: 'redundancy', label: 'No single instance may matter' },
-      { from: 'target', to: 'zones', label: 'Survive losing a whole zone' },
-      { from: 'target', to: 'failover', label: 'Recover without waking a human' },
-      { from: 'redundancy', to: 'cost', label: 'Every extra copy is billed', outcome: 'warning' },
-      { from: 'zones', to: 'cost', label: 'Cross-zone traffic is billed too', outcome: 'warning' },
+      { from: 'users', to: 'lb', label: 'Ride request reaches the balancer pair' },
+      { from: 'lb', to: 'api', label: 'Health check skips a dead server' },
+      { from: 'lb', to: 'api', label: 'One app server per zone' },
+      { from: 'api', to: 'ws', label: 'One WebSocket server per zone' },
+      { from: 'ws', to: 'lb', label: 'Driver position streamed to rider' },
+      { from: 'api', to: 'db', label: 'Trip stored, copied to standby' },
+      { from: 'db', to: 'db', label: 'Primary dies: standby promoted automatically', outcome: 'warning' },
+      { from: 'api', to: 'api', label: 'Monthly cost: x1 becomes x3', outcome: 'warning' },
     ],
   },
 
   'capacity-estimation': {
     width: 786,
     height: 300,
-    caption: '10M DAU x 20 requests = 200M/day = ~2,300 req/sec average, ~11,600 at peak: 18 app servers and 40 GB of new data a day.',
+    // Every number is what the Capacity Lab shows on the capacity-estimation Lab focus (exact mode).
+    caption: '10M DAU x 20 = 200M requests/day = 2,315 req/sec average, 11,574 at peak: 18 app servers, 40 GB a day, 219 TB after 5 years x 3 copies.',
     nodes: [
-      { id: 'clients', kind: 'client', label: 'Clients', sub: '10M DAU x 20 a day', x: 10, y: 110, w: 161, h: 80 },
-      { id: 'lb', kind: 'load-balancer', label: 'Load balancer', sub: 'pair, 11,575 req/s peak', x: 192, y: 110, w: 176, h: 80 },
-      { id: 'app', kind: 'server', label: 'App x 18', sub: '1k req/s each + headroom', x: 389, y: 110, w: 191, h: 80 },
-      { id: 'db', kind: 'sql', label: 'Database', sub: '1,160 writes/s at peak', x: 606, y: 20, w: 170, h: 80 },
-      { id: 'store', kind: 'storage', label: 'Object storage', sub: '40 GB/day, 15 TB/year', x: 604, y: 200, w: 173, h: 80 },
+      { id: 'clients', kind: 'client', label: 'Clients', sub: '10M DAU x 20/day', x: 10, y: 102, w: 161, h: 95, stat: ['Average', '2,315/s'] },
+      { id: 'lb', kind: 'load-balancer', label: 'Load balancer', sub: 'pair, sees all traffic', x: 192, y: 102, w: 176, h: 95, stat: ['Peak', '11,574 req/s'] },
+      { id: 'app', kind: 'server', label: 'App tier x 18', sub: '1,000 req/s each', x: 389, y: 102, w: 191, h: 95, stat: ['Needed at peak', '12'] },
+      { id: 'db', kind: 'sql', label: 'Database', sub: 'primary + read replicas', x: 604, y: 10, w: 178, h: 95, stat: ['Peak writes', '1,157/s'] },
+      { id: 'store', kind: 'storage', label: 'Object storage', sub: '2 KB per write', x: 604, y: 195, w: 178, h: 95, stat: ['5 yr x 3 copies', '219 TB'] },
     ],
     edges: [
       { from: 'clients', to: 'lb', tone: 'brand', rate: 3 },
@@ -103,10 +141,13 @@ export const foundationVisuals: Record<string, VisualSpec> = {
     steps: [
       { from: 'clients', to: 'lb', label: 'Users x 20 = 200M/day' },
       { from: 'clients', to: 'lb', label: 'Divide by 86,400: 2,315/sec' },
-      { from: 'lb', to: 'app', label: 'Times 5 at peak: 11,575/sec', outcome: 'warning' },
-      { from: 'lb', to: 'app', label: '1k each, plus headroom: 18' },
-      { from: 'app', to: 'db', label: '10% writes: 1,160/sec peak' },
+      { from: 'lb', to: 'app', label: 'Times 5 at peak: 11,574/sec', outcome: 'warning' },
+      { from: 'lb', to: 'app', label: '1,000 each: 12, x 1.5: 18' },
+      { from: 'app', to: 'db', label: '10% writes: 1,157/sec peak' },
       { from: 'app', to: 'store', label: '2 KB each: 40 GB/day' },
+      { from: 'app', to: 'store', label: 'Times 365: 15 TB/year' },
+      { from: 'app', to: 'store', label: 'Keep 5 years: 73 TB' },
+      { from: 'app', to: 'store', label: 'Times 3 copies: 219 TB' },
     ],
   },
 

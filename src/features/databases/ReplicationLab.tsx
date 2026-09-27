@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef } from 'react';
 import { Power, RotateCw, ShieldAlert } from 'lucide-react';
 import {
   ArchNode,
@@ -25,6 +25,7 @@ import { useRerender } from '@/hooks/useRerender';
 import { sampleArrivals } from '@/utils/math';
 import { formatLatency, formatNumber, formatPercent } from '@/utils/format';
 import type { LabFocus, LabProps, NodeStatus } from '@/types';
+import { useLabRunning } from '@/hooks/useLabRunning';
 
 /**
  * When the primary acknowledges a write:
@@ -204,7 +205,7 @@ export function ReplicationLab({ focus }: LabProps<'replication'>) {
   // Every control lives in one object, so Reset cannot miss one.
   const { setup, setSetup, change } = useLabSetup(start);
   const { mode, writeRate, readRate, lagMs, readFromReplicas, readYourWrites } = setup;
-  const [running, setRunning] = useState(true);
+  const [running, setRunning] = useLabRunning();
 
   const state = useRef<State>(createState());
   const rerender = useRerender(30);
@@ -294,10 +295,12 @@ export function ReplicationLab({ focus }: LabProps<'replication'>) {
           if (item.role === 'primary') {
             item.role = 'replica';
             item.outOfSet = item.status === 'down';
+            // A demoted node sits in a replica box: drop the old role from its title.
+            item.name = item.id === 'primary' ? 'Old primary' : item.name.replace(' (promoted)', '');
           }
         }
         winner.role = 'primary';
-        winner.name = `${winner.name} (promoted)`;
+        winner.name = winner.id === 'primary' ? 'Primary' : `${winner.name} (promoted)`;
         current.version = winner.applied;
         current.acked = Math.min(current.acked, winner.applied);
         // Whatever the new primary holds is now the truth for every row.
@@ -494,11 +497,11 @@ export function ReplicationLab({ focus }: LabProps<'replication'>) {
 
   const xs = spread(replicas.length, 480, 170, 30);
   const layout: Layout = {
-    client: { x: 390, y: 16, w: 180, h: 58 },
+    client: { x: 380, y: 16, w: 200, h: 73 },
   };
-  if (primary) layout[primary.id] = { x: 370, y: 124, w: 220, h: 140 };
+  if (primary) layout[primary.id] = { x: 370, y: 124, w: 220, h: 173 };
   replicas.forEach((replica, index) => {
-    layout[replica.id] = { x: xs[index], y: 326, w: 170, h: 140 };
+    layout[replica.id] = { x: xs[index], y: 336, w: 170, h: 173 };
   });
 
   const replicaEdgeLabel = mode === 'async' ? `lag ${lagMs} ms` : mode === 'sync' ? 'sync' : `sync 1 of ${replicas.length}`;
@@ -599,16 +602,17 @@ export function ReplicationLab({ focus }: LabProps<'replication'>) {
       title="Database Replication Lab"
       description="Writes go to the primary (the leader) and stream to replicas (its followers). Watch replication lag create stale reads, choose when a write counts as saved, then kill the primary and see what a failover costs."
       running={running}
-      onToggleRun={() => setRunning((value) => !value)}
+      onRunningChange={setRunning}
       onReset={reset}
       legend={
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
-          <ParticleLegend outcomes={['success', 'cache-hit', 'warning', 'failure']} />
-          <span className="text-[11px] text-faint">
-            Circle: write or acknowledgement. Diamond: up-to-date read. Triangle: async copy in flight, or a read that
-            misses an acknowledged write. Cross: a user not seeing their own save, or a refused write.
-          </span>
-        </div>
+        <ParticleLegend
+          outcomes={[
+            { outcome: 'success', label: 'Write or acknowledgement' },
+            { outcome: 'cache-hit', label: 'Up-to-date read' },
+            { outcome: 'warning', label: 'Async copy, or a read missing an acknowledged write' },
+            { outcome: 'failure', label: 'Own save not seen, or a refused write' },
+          ]}
+        />
       }
       events={events}
       actions={
@@ -662,7 +666,6 @@ export function ReplicationLab({ focus }: LabProps<'replication'>) {
                 key: 'latency',
                 label: 'Write latency',
                 value: formatLatency(writeLatency),
-                tone: mode === 'async' ? 'ok' : 'warn',
                 hint: `Time until the write is acknowledged: ${COMMIT_MS} ms to commit on the primary, plus the wait for replicas the mode asks for.`,
                 simulated: true,
               },
@@ -773,7 +776,7 @@ export function ReplicationLab({ focus }: LabProps<'replication'>) {
                 : 'Synchronous modes make the write wait this long for replicas, so a slower network means slower writes (simplified model).'
             }
           />
-          <div className="flex items-center justify-between gap-2 rounded-xl border border-line bg-elevated p-3">
+          <div className="flex items-center justify-between gap-2">
             <span className="text-xs text-muted">Route reads to</span>
             <SegmentedControl
               size="sm"
@@ -818,7 +821,7 @@ export function ReplicationLab({ focus }: LabProps<'replication'>) {
         </>
       }
     >
-      <DiagramCanvas layout={layout} edges={edges} particles={particleViews} height={490} className="bg-canvas">
+      <DiagramCanvas layout={layout} edges={edges} particles={particleViews} height={525} className="bg-canvas">
         <ArchNode
           kind="client"
           title="Application"
